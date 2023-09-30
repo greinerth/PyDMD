@@ -7,7 +7,8 @@ from pydmd.varprodmd import OptimizeHelper,\
                             compute_optdmd_any,\
                             optdmd_predict,\
                             select_best_samples_fast,\
-                            OPT_DEF_ARGS
+                            OPT_DEF_ARGS,\
+                            VarProDMD
 
 
 def signal(x_loc: np.ndarray, time: np.ndarray):
@@ -16,7 +17,7 @@ def signal(x_loc: np.ndarray, time: np.ndarray):
     return __f_1 + __f_2
 
 
-def test_opt_dmd_rho():
+def test_varprodmd_rho():
     data = np.eye(2, 2).astype(np.complex128)
     time = np.array([0., 1.], np.float64)
     alphas = np.array([1. + 0j, 1. + 0j], np.complex128)
@@ -42,7 +43,7 @@ def test_opt_dmd_rho():
     assert np.array_equal(phi, opthelper.phi)
 
 
-def test_opt_dmd_jac():
+def test_varprodmd_jac():
     data = np.eye(2, 2).astype(np.complex128)
     time = np.array([0., 1.])
     alphas = np.array([-1. + 0.j, -2. + 0.j], np.complex128)
@@ -130,7 +131,7 @@ def test_opt_dmd_jac():
     # assert np.array_equal(__GRAD_REAL, __imag2real)
 
 
-def test_opt_dmd_fixed():
+def test_varprodmd_fixed():
     dt = 4 * np.pi / 100
     time = np.linspace(0, 4 * np.pi, 100)
     x_loc = np.linspace(-10, 10, 1024)
@@ -156,7 +157,7 @@ def test_opt_dmd_fixed():
         compute_optdmd_fixed(z[:, 0], dt, rank=0., **OPT_DEF_ARGS)
 
 
-def test_opt_dmd_any():
+def test_varprodmd_any():
 
     time = np.linspace(0, 4 * np.pi, 100)
     x_loc = np.linspace(-10, 10, 1024)
@@ -204,3 +205,32 @@ def test_opt_dmd_any():
         z.shape[0] / z.shape[-1]
 
     assert __mae_0 < 1
+
+def test_varprodmd_class():
+
+    time = np.linspace(0, 4 * np.pi, 100)
+    x_loc = np.linspace(-10, 10, 1024)
+    __x, __time = np.meshgrid(x_loc, time)
+
+    z = signal(__x, __time).T
+    dmd = VarProDMD(0, False, False, 0)
+
+    with pytest.raises(ValueError):
+        dmd.forcast(time)
+
+    dmd.fit(z, time)
+    __pred = dmd.forcast(time)
+
+    __diff = np.abs(__pred - z)
+    __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
+        z.shape[0] / z.shape[-1]
+
+    assert __mae_0 < 1
+
+    dmd = VarProDMD(0, False, False, 0.8)
+    dmd.fit(z, time)
+    __pred = dmd.forcast(time)
+
+    __diff = np.abs(__pred - z)
+    __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
+        z.shape[0] / z.shape[-1]

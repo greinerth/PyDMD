@@ -6,9 +6,9 @@ from typing import Any, Dict, Tuple, Union
 import numpy as np
 from scipy.optimize import OptimizeResult, least_squares
 from scipy.linalg import qr
-from .dmd import DMD
+from .dmd import DMDBase
 from .dmdoperator import DMDOperator
-from .utils import compute_svd
+from .snapshots import Snapshots
 
 OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
     "method": 'trf',
@@ -259,7 +259,8 @@ def compute_optdmd_fixed(data: np.ndarray,  # pylint: disable=unused-variable
 
     time = delta_t * np.arange(data.shape[-1] - 1)
     __dmdoperator = DMDOperator(rank, False, False, None, False, False)
-    __u_r, __s_r, __v_r = __dmdoperator.compute_operator(data[:, :-1], data[:, 1:])
+    __u_r, __s_r, __v_r = __dmdoperator.compute_operator(
+        data[:, :-1], data[:, 1:])
 
     __lambdas = __dmdoperator.eigenvalues
 
@@ -268,10 +269,12 @@ def compute_optdmd_fixed(data: np.ndarray,  # pylint: disable=unused-variable
     __omegas_in[:__omegas.shape[-1]] = __omegas.real
     __omegas_in[__omegas.shape[-1]:] = __omegas.imag
 
-    __data_in = __v_r.conj() * __s_r.reshape((1, -1)) if use_proj else data[:, :-1].T
+    __data_in = __v_r.conj() * __s_r.reshape((1, -1)
+                                             ) if use_proj else data[:, :-1].T
 
     if __data_in.shape[-1] < __lambdas.shape[-1]:
-        warnings.warn("Attempting to solve underdeterimined system, decrease desired rank!")
+        warnings.warn(
+            "Attempting to solve underdeterimined system, decrease desired rank!")
 
     __opthelper = OptimizeHelper(__u_r.shape[-1], *__data_in.shape)
     __opt = __compute_dmd_varpro(
@@ -292,7 +295,6 @@ def compute_optdmd_any(data: np.ndarray,  # pylint: disable=unused-variable
                                                        np.ndarray,
                                                        np.ndarray,
                                                        OptimizeResult]:
-    
     """Compute DMD given arbitary timesteps.
 
     Args:
@@ -335,7 +337,8 @@ def compute_optdmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     __data_in = __v_r.conj() * __s_r.reshape((1, -1)) if use_proj else __y.T
 
     if __data_in.shape[-1] < __omegas.shape[-1]:
-        warnings.warn("Attempting to solve underdeterimined system, decrease desired rank!")
+        warnings.warn(
+            "Attempting to solve underdeterimined system, decrease desired rank!")
 
     __opthelper = OptimizeHelper(__u_r.shape[-1], *__data_in.shape)
     __opt = __compute_dmd_varpro(
@@ -363,3 +366,62 @@ def optdmd_predict(phi: np.ndarray,  # pylint: disable=unused-variable
         np.ndarray: Prediction of DMD given parameters.
     """
     return phi @ (np.exp(np.outer(omegas, time)) * eigenf.reshape(-1, 1))
+
+
+class VarProOperator(DMDOperator):
+
+    def __init__(self,
+                 svd_rank: Union[float, int],
+                 exact: bool,
+                 sorted_eigs: str, optargs: Dict[str, Any]):
+
+        super().__init__(svd_rank,
+                         exact,
+                         False,
+                         None,
+                         sorted_eigs,
+                         False)
+        self._optargs = optargs
+
+    def compute_operator(self, data: np.ndarray, time: np.ndarray) -> Tuple[np.ndarray, OptimizeResult]:
+        self._modes, self._eigenvalues, eigenf, opt = compute_optdmd_any(data,
+                                                                         time,
+                                                                         self._optargs,
+                                                                         self._svd_rank,
+                                                                         self._exact)
+        return eigenf, opt
+
+
+class VarProDMD(DMDBase):
+
+    def __init__(self,
+                 svd_rank: Union[float, int]=0,
+                 exact: bool=False,
+                 sorted_eigs: bool=False,
+                 compression: float = 0.,
+                 optargs: Dict[str, Any] = OPT_DEF_ARGS):
+        super().__init__(svd_rank, 0, exact, False, None, False, sorted_eigs, None)
+        self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, optargs)
+        self._optres: OptimizeResult = None
+        self._snapshots_holder: Snapshots = None
+        self._compression: float = compression
+    
+    def fit(self, data: np.ndarray, time: np.ndarray):
+        self._snapshots_holder = Snapshots(data)
+        if self._compression > 0:
+            __idx = select_best_samples_fast(self._snapshots_holder.snapshots, self._compression)
+            __data_in = self._snapshots_holder.snapshots[:, __idx]
+            __time_in = time[__idx]
+
+        else:
+            __data_in = self._snapshots_holder.snapshots
+            __time_in = time
+        self._b, self._optres = self._Atilde.compute_operator(__data_in, __time_in)
+        self._original_time = __time_in
+        return self
+
+    def forcast(self, time: np.ndarray) -> np.ndarray:
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet!")
+
+        return optdmd_predict(self._Atilde.modes, self._Atilde.eigenvalues, self._b, time)
