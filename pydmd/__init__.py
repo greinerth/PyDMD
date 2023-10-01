@@ -16,7 +16,6 @@ __all__ = [
     "bopdmd",
     "pidmd",
     "edmd",
-    "preprocessing",
     "varprodmd"
 ]
 
@@ -37,7 +36,7 @@ from .mrdmd import MrDMD
 from .optdmd import OptDMD
 from .paramdmd import ParametricDMD
 from .pidmd import PiDMD
-from .preprocessing import PrePostProcessingDMD, svd_projection_preprocessing, zero_mean_preprocessing, hankel_preprocessing
+from .preprocessing import PrePostProcessingDMD
 from .rdmd import RDMD
 from .spdmd import SpDMD
 from .subspacedmd import SubspaceDMD
