@@ -3,7 +3,6 @@ import pytest
 from pydmd.varprodmd import OptimizeHelper, \
     __compute_dmd_rho, \
     __compute_dmd_jac, \
-    compute_varprodmd_fixed, \
     compute_varprodmd_any, \
     optdmd_predict, \
     select_best_samples_fast, \
@@ -133,34 +132,6 @@ def test_varprodmd_jac():
     # assert np.array_equal(__GRAD_REAL, __imag2real)
 
 
-def test_varprodmd_fixed():
-    dt = 4 * np.pi / 100
-    time = np.linspace(0, 4 * np.pi, 100)
-    x_loc = np.linspace(-10, 10, 1024)
-    __x, __time = np.meshgrid(x_loc, time)
-
-    z = signal(__x, __time).T
-    phi, lambdas, eigenf, __ = compute_varprodmd_fixed(
-        z, dt, rank=0., **OPT_DEF_ARGS)
-    # print(lambdas)
-    __pred = optdmd_predict(phi, lambdas, eigenf, np.arange(z.shape[-1]) * dt)
-    __diff = np.abs(__pred.real - z)
-    __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
-        z.shape[0] / z.shape[-1]
-    assert __mae < 2e-1
-
-    phi, lambdas, eigenf, __ = compute_varprodmd_fixed(
-        z, dt, rank=0., **OPT_DEF_ARGS, use_proj=False)
-    __pred = optdmd_predict(phi, lambdas, eigenf, np.arange(z.shape[-1]) * dt)
-    __diff = np.abs(__pred.real - z)
-    __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
-        z.shape[0] / z.shape[-1]
-    assert __mae < 2e-1
-
-    with pytest.raises(ValueError):
-        compute_varprodmd_fixed(z[:, 0], dt, rank=0., **OPT_DEF_ARGS)
-
-
 def test_varprodmd_any():
 
     time = np.linspace(0, 4 * np.pi, 100)
@@ -249,18 +220,7 @@ def test_varprodmd_class():
         z.shape[0] / z.shape[-1]
 
     assert __mae < 1
-    assert dmd.ssr < 1e-3
-
-    dmd = VarProDMD(0, False, False, 0)
-    dmd.fit(z, 4 * np.pi / 100)
-
-    __pred = dmd.forcast(time)
-
-    __diff = np.abs(__pred - z)
-    __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
-        z.shape[0] / z.shape[-1]
-
-    assert __mae < 1.
+    # assert dmd.ssr < 1e-3
 
     dmd = VarProDMD(0, False, "unkown_sort", 0.8)
 

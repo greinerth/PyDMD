@@ -194,70 +194,11 @@ def select_best_samples_fast(data: np.ndarray,
     return __idx
 
 
-def compute_varprodmd_fixed(data: np.ndarray,  # pylint: disable=unused-variable
-                         delta_t: float,
-                         rank: Union[float, int] = 0,
-                         use_proj: bool = True,
-                         **optargs) -> Tuple[np.ndarray,
-                                             np.ndarray,
-                                             np.ndarray,
-                                             OptimizeResult]:
-    """Compute optimized DMD (using VarPro) with fixed Timesteps
-
-    Args:
-        data (np.ndarray): data :math: `X \n C^{n \times m}`.
-        delta_t (float): fixed sampling time delta_t :math `d_t`.
-        rank (Union[float, int], optional): Rank for initial DMD computation. Defaults to 0.
-                                            If rank :math: `r = 0`, the rank is chosen automatically,
-                                            else desired rank is used.
-
-    Raises:
-        ValueError: If data is not a 2D array.
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray, np.ndarray, OptimizeResult]: Modes,
-                                                                   cont. eigenvalues,
-                                                                   eigenfunctions and
-                                                                   OptimizationResult.
-    """
-    if len(data.shape) != 2:
-        raise ValueError("data needs to be 2D array")
-
-    time = delta_t * np.arange(data.shape[-1] - 1)
-    __dmdoperator = DMDOperator(rank, False, False, None, False, False)
-    __u_r, __s_r, __v_r = __dmdoperator.compute_operator(
-        data[:, :-1], data[:, 1:])
-
-    __lambdas = __dmdoperator.eigenvalues
-
-    __omegas = np.log(__lambdas) / delta_t
-    __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
-    __omegas_in[:__omegas.shape[-1]] = __omegas.real
-    __omegas_in[__omegas.shape[-1]:] = __omegas.imag
-
-    __data_in = __v_r.conj() * __s_r.reshape((1, -1)
-                                             ) if use_proj else data[:, :-1].T
-
-    if __data_in.shape[-1] < __lambdas.shape[-1]:
-        warnings.warn(
-            "Attempting to solve underdeterimined system, decrease desired rank!")
-
-    __opthelper = OptimizeHelper(__u_r.shape[-1], *__data_in.shape)
-    __opt = __compute_dmd_varpro(
-        __omegas_in, time, __data_in, __opthelper, **optargs)
-    __omegas.real = __opt.x[:__opt.x.shape[-1] // 2]
-    __omegas.imag = __opt.x[__opt.x.shape[-1] // 2:]
-    __xi = __u_r @ __opthelper.b_matrix.T if use_proj else __opthelper.b_matrix.T
-    eigenf = np.linalg.norm(__xi, axis=0)
-
-    return __xi / eigenf.reshape((1, -1)), __omegas, eigenf, __opt
-
-
 def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
-                       time: np.ndarray,
-                       optargs: Dict[str, Any],
-                       rank: Union[float, int] = 0.,
-                       use_proj: bool = True) -> Tuple[np.ndarray,
+                          time: np.ndarray,
+                          optargs: Dict[str, Any],
+                          rank: Union[float, int] = 0.,
+                          use_proj: bool = True) -> Tuple[np.ndarray,
                                                        np.ndarray,
                                                        np.ndarray,
                                                        OptimizeResult]:
@@ -353,8 +294,8 @@ class VarProOperator(DMDOperator):
                          False)
         self._optargs = optargs
 
-    def compute_operator(self, data: np.ndarray, time: Union[np.ndarray, float]) -> Tuple[np.ndarray,
-                                                                                          OptimizeResult]:
+    def compute_operator(self, data: np.ndarray, time: np.ndarray) -> Tuple[np.ndarray,
+                                                                            OptimizeResult]:
         """Compute the VarProDMD operator
 
         Args:
@@ -369,18 +310,12 @@ class VarProOperator(DMDOperator):
         Returns:
             Tuple[np.ndarray, OptimizeResult]: DMD amplitudes and the optimization result.
         """
-        if isinstance(time, float):
-            self._modes, self._eigenvalues, eigenf, opt = compute_varprodmd_fixed(data,
-                                                                                  time,
-                                                                                  self._svd_rank,
-                                                                                  self._exact,
-                                                                                  **self._optargs)
-        else:    
-            self._modes, self._eigenvalues, eigenf, opt = compute_varprodmd_any(data,
-                                                                                time,
-                                                                                self._optargs,
-                                                                                self._svd_rank,
-                                                                                self._exact)
+
+        self._modes, self._eigenvalues, eigenf, opt = compute_varprodmd_any(data,
+                                                                            time,
+                                                                            self._optargs,
+                                                                            self._svd_rank,
+                                                                            self._exact)
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
             self._sorted_eigs = "auto"
@@ -454,8 +389,18 @@ class VarProDMD(DMDBase):
         self._compression: float = compression
         self._indices: np.ndarray = None
     
-    def fit(self, data: np.ndarray, time: np.ndarray):
+    def fit(self, data: np.ndarray, time: np.ndarray) -> object:
+        """ Fit the eigenvalues, modes and amplitudes to data
+
+        Args:
+            data (np.ndarray): Data input
+            time (np.ndarray): Measured timestamps.
+
+        Returns:
+            object: Reference to VarProDMD instance.
+        """
         self._snapshots_holder = Snapshots(data)
+
         if self._compression > 0:
             __idx = select_best_samples_fast(self._snapshots_holder.snapshots, self._compression)
             __data_in = self._snapshots_holder.snapshots[:, __idx]
@@ -465,6 +410,7 @@ class VarProDMD(DMDBase):
         else:
             __data_in = self._snapshots_holder.snapshots
             __time_in = time
+
         self._b, self._optres = self._Atilde.compute_operator(__data_in, __time_in)
         self._original_time = __time_in
         return self
