@@ -1,14 +1,14 @@
 import numpy as np
 import pytest
-from pydmd.varprodmd import OptimizeHelper,\
-                            __compute_dmd_rho,\
-                            __compute_dmd_jac,\
-                            compute_optdmd_fixed,\
-                            compute_optdmd_any,\
-                            optdmd_predict,\
-                            select_best_samples_fast,\
-                            OPT_DEF_ARGS,\
-                            VarProDMD
+from pydmd.varprodmd import OptimizeHelper, \
+    __compute_dmd_rho, \
+    __compute_dmd_jac, \
+    compute_varprodmd_fixed, \
+    compute_varprodmd_any, \
+    optdmd_predict, \
+    select_best_samples_fast, \
+    OPT_DEF_ARGS, \
+    VarProDMD
 
 
 def signal(x_loc: np.ndarray, time: np.ndarray):
@@ -84,8 +84,10 @@ def test_varprodmd_jac():
                                                               d_phi_2,
                                                               opthelper.b_matrix])
 
-    G_1 = np.linalg.multi_dot([phi_inv.conj().T, d_phi_1.conj().T, opthelper.rho])
-    G_2 = np.linalg.multi_dot([phi_inv.conj().T, d_phi_2.conj().T, opthelper.rho])
+    G_1 = np.linalg.multi_dot(
+        [phi_inv.conj().T, d_phi_1.conj().T, opthelper.rho])
+    G_2 = np.linalg.multi_dot(
+        [phi_inv.conj().T, d_phi_2.conj().T, opthelper.rho])
     J_1 = -A_1 - G_1
     J_2 = -A_2 - G_2
     J_1_flat = np.ravel(J_1)
@@ -138,7 +140,8 @@ def test_varprodmd_fixed():
     __x, __time = np.meshgrid(x_loc, time)
 
     z = signal(__x, __time).T
-    phi, lambdas, eigenf, __ = compute_optdmd_fixed(z, dt, rank=0., **OPT_DEF_ARGS)
+    phi, lambdas, eigenf, __ = compute_varprodmd_fixed(
+        z, dt, rank=0., **OPT_DEF_ARGS)
     # print(lambdas)
     __pred = optdmd_predict(phi, lambdas, eigenf, np.arange(z.shape[-1]) * dt)
     __diff = np.abs(__pred.real - z)
@@ -146,7 +149,8 @@ def test_varprodmd_fixed():
         z.shape[0] / z.shape[-1]
     assert __mae < 2e-1
 
-    phi, lambdas, eigenf, __ = compute_optdmd_fixed(z, dt, rank=0., **OPT_DEF_ARGS, use_proj=False)
+    phi, lambdas, eigenf, __ = compute_varprodmd_fixed(
+        z, dt, rank=0., **OPT_DEF_ARGS, use_proj=False)
     __pred = optdmd_predict(phi, lambdas, eigenf, np.arange(z.shape[-1]) * dt)
     __diff = np.abs(__pred.real - z)
     __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
@@ -154,7 +158,7 @@ def test_varprodmd_fixed():
     assert __mae < 2e-1
 
     with pytest.raises(ValueError):
-        compute_optdmd_fixed(z[:, 0], dt, rank=0., **OPT_DEF_ARGS)
+        compute_varprodmd_fixed(z[:, 0], dt, rank=0., **OPT_DEF_ARGS)
 
 
 def test_varprodmd_any():
@@ -171,22 +175,22 @@ def test_varprodmd_any():
     __t_sub = time[__idx]
 
     with pytest.raises(ValueError):
-        compute_optdmd_any(__z_sub[:, 0],
-                           __t_sub,
-                           OPT_DEF_ARGS,
-                           rank=0.,)
+        compute_varprodmd_any(__z_sub[:, 0],
+                              __t_sub,
+                              OPT_DEF_ARGS,
+                              rank=0.,)
 
     with pytest.raises(ValueError):
-        compute_optdmd_any(__z_sub,
-                           __t_sub.reshape((-1, 1)),
-                           OPT_DEF_ARGS,
-                           rank=0.)
+        compute_varprodmd_any(__z_sub,
+                              __t_sub.reshape((-1, 1)),
+                              OPT_DEF_ARGS,
+                              rank=0.)
 
     # print(__t_sub)
-    phi, lambdas, eigenf, __ = compute_optdmd_any(__z_sub,
-                                                  __t_sub,
-                                                  OPT_DEF_ARGS,
-                                                  rank=0.)
+    phi, lambdas, eigenf, __ = compute_varprodmd_any(__z_sub,
+                                                     __t_sub,
+                                                     OPT_DEF_ARGS,
+                                                     rank=0.)
     __pred = optdmd_predict(phi, lambdas, eigenf, time)
     __diff = np.abs(__pred - z)
     __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
@@ -194,17 +198,18 @@ def test_varprodmd_any():
 
     assert __mae_0 < 1
 
-    phi, lambdas, eigenf, __ = compute_optdmd_any(__z_sub,
-                                                  __t_sub,
-                                                  OPT_DEF_ARGS,
-                                                  rank=0.,
-                                                  use_proj=False)
+    phi, lambdas, eigenf, __ = compute_varprodmd_any(__z_sub,
+                                                     __t_sub,
+                                                     OPT_DEF_ARGS,
+                                                     rank=0.,
+                                                     use_proj=False)
     __pred = optdmd_predict(phi, lambdas, eigenf, time)
     __diff = np.abs(__pred - z)
     __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
         z.shape[0] / z.shape[-1]
 
     assert __mae_0 < 1
+
 
 def test_varprodmd_class():
 
@@ -240,11 +245,22 @@ def test_varprodmd_class():
     __pred = dmd.forcast(time)
 
     __diff = np.abs(__pred - z)
-    __mae  = np.sum(np.sum(__diff, axis=0), axis=-1) / \
+    __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
         z.shape[0] / z.shape[-1]
 
     assert __mae < 1
     assert dmd.ssr < 1e-3
+
+    dmd = VarProDMD(0, False, False, 0)
+    dmd.fit(z, 4 * np.pi / 100)
+
+    __pred = dmd.forcast(time)
+
+    __diff = np.abs(__pred - z)
+    __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
+        z.shape[0] / z.shape[-1]
+
+    assert __mae < 1.
 
     dmd = VarProDMD(0, False, "unkown_sort", 0.8)
 

@@ -194,44 +194,7 @@ def select_best_samples_fast(data: np.ndarray,
     return __idx
 
 
-def select_best_samples(data: np.ndarray,  # pylint: disable=unused-variable
-                        eps: float = 1e-3) -> np.ndarray:
-    r""" Select best samples given threshold
-
-    Args:
-        data (np.ndarray): Input data :math: `X \in \mathbb{c}^{n \times m}`
-        eps (float, optional): Threshold :math: `\eps`. Defaults to 1e-3.
-
-    Raises:
-        ValueError: If data is not a 2D array.
-
-    Returns:
-        Tuple[np.ndarray]: indices of selected samples.
-    """
-
-    if len(data.shape) != 2:
-        raise ValueError("Expected 2D array!")
-
-    eps = abs(eps)
-    indices = [0]
-    u_svd = np.linalg.svd(data[:, 0].reshape((-1, 1)), full_matrices=False)[0]
-
-    for i in range(1, data.shape[-1]):
-
-        vec = data[:, i] - \
-            np.linalg.multi_dot(
-                [u_svd, u_svd.conj().T, data[:, i]])
-        delta = np.linalg.norm(vec)
-
-        if delta >= eps:
-            indices.append(i)
-            u_svd = np.linalg.svd(
-                data[:, np.array(indices)], full_matrices=False)[0]
-
-    return np.array(indices)
-
-
-def compute_optdmd_fixed(data: np.ndarray,  # pylint: disable=unused-variable
+def compute_varprodmd_fixed(data: np.ndarray,  # pylint: disable=unused-variable
                          delta_t: float,
                          rank: Union[float, int] = 0,
                          use_proj: bool = True,
@@ -290,7 +253,7 @@ def compute_optdmd_fixed(data: np.ndarray,  # pylint: disable=unused-variable
     return __xi / eigenf.reshape((1, -1)), __omegas, eigenf, __opt
 
 
-def compute_optdmd_any(data: np.ndarray,  # pylint: disable=unused-variable
+def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
                        time: np.ndarray,
                        optargs: Dict[str, Any],
                        rank: Union[float, int] = 0.,
@@ -390,12 +353,34 @@ class VarProOperator(DMDOperator):
                          False)
         self._optargs = optargs
 
-    def compute_operator(self, data: np.ndarray, time: np.ndarray) -> Tuple[np.ndarray, OptimizeResult]:
-        self._modes, self._eigenvalues, eigenf, opt = compute_optdmd_any(data,
-                                                                         time,
-                                                                         self._optargs,
-                                                                         self._svd_rank,
-                                                                         self._exact)
+    def compute_operator(self, data: np.ndarray, time: Union[np.ndarray, float]) -> Tuple[np.ndarray,
+                                                                                          OptimizeResult]:
+        """Compute the VarProDMD operator
+
+        Args:
+            data (np.ndarray): Measurements/Observables
+            time (Union[np.ndarray, float]): Timesteps or sampling time. If time is float
+                                             the parameter is interpreted as sampling time,
+                                             else it is interpreted as 1D array
+
+        Raises:
+            ValueError: If sorted_eigs parameter is not supported.
+
+        Returns:
+            Tuple[np.ndarray, OptimizeResult]: DMD amplitudes and the optimization result.
+        """
+        if isinstance(time, float):
+            self._modes, self._eigenvalues, eigenf, opt = compute_varprodmd_fixed(data,
+                                                                                  time,
+                                                                                  self._svd_rank,
+                                                                                  self._exact,
+                                                                                  **self._optargs)
+        else:    
+            self._modes, self._eigenvalues, eigenf, opt = compute_varprodmd_any(data,
+                                                                                time,
+                                                                                self._optargs,
+                                                                                self._svd_rank,
+                                                                                self._exact)
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
             self._sorted_eigs = "auto"
