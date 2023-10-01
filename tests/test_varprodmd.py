@@ -232,7 +232,11 @@ def test_varprodmd_class():
     assert dmd.eigs.size > 0
     assert len(dmd.modes.shape) == 2
     assert dmd.amplitudes.size > 0
-
+    assert len(dmd.dynamics.shape) == 2
+    assert dmd.amplitudes.size == dmd.frequency.size
+    assert dmd.growth_rate.size == dmd.amplitudes.size
+    assert dmd.eigs.size == dmd.amplitudes.size
+    assert np.max(abs(dmd.eigs.imag)) == pytest.approx(2.8)
     __pred = dmd.forcast(time)
 
     __diff = np.abs(__pred - z)

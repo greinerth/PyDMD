@@ -1,4 +1,7 @@
-"""Optimized DMD using Variable Projection (VarPro)
+"""Variable Projection for DMD. Reformulation of original paper
+   (https://epubs.siam.org/doi/abs/10.1137/M1124176) s.t. sparse matrix computation
+   is substiuted by outer products. Further the optimization is reformulated s.t. SciPy's
+   nonlinear least squares optimizer can handle "complex" parameters. 
 """
 import warnings
 from typing import Any, Dict, Tuple, Union
@@ -33,8 +36,8 @@ class OptimizeHelper:
         self.u_svd: np.ndarray = np.empty((m_in, l_in), dtype=np.complex128)
         self.s_inv: np.ndarray = np.empty((l_in,), dtype=np.complex128)
         self.v_svd: np.ndarray = np.empty((l_in, l_in), dtype=np.complex128)
-        self.b_matrix: np.ndarray = np.empty((l_in, n_in), dtype=np.complex64)
-        self.rho: np.ndarray = np.empty((m_in, n_in), dtype=np.complex64)
+        self.b_matrix: np.ndarray = np.empty((l_in, n_in), dtype=np.complex128)
+        self.rho: np.ndarray = np.empty((m_in, n_in), dtype=np.complex128)
 
 
 def __compute_dmd_rho(alphas: np.ndarray,
@@ -56,7 +59,7 @@ def __compute_dmd_rho(alphas: np.ndarray,
         np.ndarray: 1D resudial :math: `\rho \in \mathbb{R}^{2mn}`.
     """
 
-    __alphas = np.zeros((alphas.shape[-1] // 2,), dtype=complex)
+    __alphas = np.zeros((alphas.shape[-1] // 2,), dtype=np.complex128)
     __alphas.real = alphas[:alphas.shape[-1] // 2]
     __alphas.imag = alphas[alphas.shape[-1] // 2:]
 
@@ -369,7 +372,11 @@ def optdmd_predict(phi: np.ndarray,  # pylint: disable=unused-variable
 
 
 class VarProOperator(DMDOperator):
+    """Variable Projection Operator
 
+    Args:
+        DMDOperator (DMDOperator): The classic DMD operator
+    """
     def __init__(self,
                  svd_rank: Union[float, int],
                  exact: bool,
@@ -549,3 +556,34 @@ class VarProDMD(DMDBase):
             raise ValueError("Nothing fitted yet!")
 
         return self._optres
+
+    @property
+    def dynamics(self):
+        """
+        Get the time evolution of each mode.
+
+        :return: matrix that contains all the time evolution, stored by row.
+        :rtype: numpy.ndarray
+        """
+        t_omega = np.exp(np.outer(self.eigs, self._original_time))
+        return self.amplitudes.reshape(-1, 1) * t_omega
+
+    @property
+    def frequency(self):
+        """
+        Get the amplitude spectrum.
+
+        :return: the array that contains the frequencies of the eigenvalues.
+        :rtype: numpy.ndarray
+        """
+        return self.eigs.imag / (2 * np.pi)
+
+    @property
+    def growth_rate(self):
+        """
+        Get the growth rate values relative to the modes.
+
+        :return: the Floquet values
+        :rtype: numpy.ndarray
+        """
+        return self.eigs.real
