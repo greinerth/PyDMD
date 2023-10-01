@@ -220,7 +220,7 @@ def test_varprodmd_class():
         z.shape[0] / z.shape[-1]
 
     assert __mae < 1
-    # assert dmd.ssr < 1e-3
+    assert dmd.ssr < 1e-3
 
     dmd = VarProDMD(0, False, "unkown_sort", 0.8)
 
@@ -237,4 +237,6 @@ def test_varprodmd_class():
         __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
             z.shape[0] / z.shape[-1]
         assert dmd.selected_samples.size == int((1 - 0.8) * 100)
+        assert np.max(abs(dmd.eigs.imag)) == pytest.approx(2.8, 0.1)
         assert __mae < 1.
+        
