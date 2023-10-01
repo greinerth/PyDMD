@@ -415,8 +415,8 @@ class VarProDMD(DMDBase):
         self._original_time = __time_in
         return self
 
-    def forcast(self, time: np.ndarray) -> np.ndarray:
-        """ Forcast at given timesteps
+    def forecast(self, time: np.ndarray) -> np.ndarray:
+        """ Forecast at given timesteps
 
         Args:
             time (np.ndarray): 1D time array.
@@ -425,7 +425,7 @@ class VarProDMD(DMDBase):
             ValueError: If method fit was not called.
 
         Returns:
-            np.ndarray: Forcast
+            np.ndarray: Forecast
         """
         if not self.fitted:
             raise ValueError("Nothing fitted yet!")

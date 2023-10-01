@@ -192,7 +192,7 @@ def test_varprodmd_class():
     dmd = VarProDMD(0, False, False, 0)
 
     with pytest.raises(ValueError):
-        dmd.forcast(time)
+        dmd.forecast(time)
 
     with pytest.raises(ValueError):
         dmd.ssr
@@ -213,7 +213,7 @@ def test_varprodmd_class():
     assert dmd.growth_rate.size == dmd.amplitudes.size
     assert dmd.eigs.size == dmd.amplitudes.size
     assert np.max(abs(dmd.eigs.imag)) == pytest.approx(2.8)
-    __pred = dmd.forcast(time)
+    __pred = dmd.forecast(time)
 
     __diff = np.abs(__pred - z)
     __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
@@ -232,7 +232,7 @@ def test_varprodmd_class():
     for arg in sort_args:
         dmd = VarProDMD(0, False, arg, 0.8)
         dmd.fit(z, time)
-        __pred = dmd.forcast(time)
+        __pred = dmd.forecast(time)
         __diff = np.abs(__pred - z)
         __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
             z.shape[0] / z.shape[-1]
