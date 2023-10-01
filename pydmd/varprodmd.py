@@ -389,22 +389,78 @@ class VarProOperator(DMDOperator):
                                                                          self._optargs,
                                                                          self._svd_rank,
                                                                          self._exact)
+        # overwrite for lazy sorting
+        if isinstance(self._sorted_eigs, bool):
+            self._sorted_eigs = "auto"
+
+        if isinstance(self._sorted_eigs, str):
+            if self._sorted_eigs == "auto":
+                eigs_real = self._eigenvalues.real
+                eigs_imag = self._eigenvalues.imag
+                __eigs_abs = np.abs(self._eigenvalues)
+                var_real = np.var(eigs_real)
+                var_imag = np.var(eigs_imag)
+                var_abs = np.var(__eigs_abs)
+                __array = np.array([var_real, var_imag, var_abs])
+                eigs_abs = (eigs_real, eigs_imag, __eigs_abs)[np.argmax(__array)]
+
+            elif self._sorted_eigs == "real":
+                eigs_abs = np.abs(self._eigenvalues.real)
+
+            elif self._sorted_eigs == "imag":
+                eigs_abs = np.abs(self._eigenvalues.imag)
+
+            elif self._sorted_eigs == "abs":
+                eigs_abs = np.abs(self._eigenvalues)
+            else:
+                raise ValueError(f"{self._sorted_eigs} not supported!")
+
+            idx = np.argsort(eigs_abs)[::-1] # sort from biggest to smallest
+            self._eigenvalues = self._eigenvalues[idx]
+            self._modes = self._modes[:, idx]
+            eigenf = eigenf[idx]
+
         return eigenf, opt
 
 
 class VarProDMD(DMDBase):
+    """Variable Projection for DMD.
+       Variable Projection is reformulated for SciPy's nonlinear least squares solver.
+       Further simplifications avoid using sparse matrices.
 
+    Args:
+        DMDBase (DMDBase): DMDBase class
+    """
     def __init__(self,
                  svd_rank: Union[float, int]=0,
                  exact: bool=False,
-                 sorted_eigs: bool=False,
+                 sorted_eigs: Union[bool, str]=False,
                  compression: float = 0.,
                  optargs: Dict[str, Any] = OPT_DEF_ARGS):
+        """VarProDMD constructor
+
+        Args:
+            svd_rank (Union[float, int], optional): Rank for initial DMD computation. Defaults to 0.
+                                                    If rank :math: `r = 0`, the rank is chosen automatically,
+                                                    else desired rank is used.
+
+            exact (bool, optional): Compute exact VarProDMD (no projection) if True,
+                                    else compute VarProDMD in low dimensional space. Defaults to False.
+            sorted_eigs (Union[bool, str], optional): Sort eigenvalues.
+                                                      If sorted_eigs is a string, supported modes are ["auto", "real", "imag", "abs"].
+                                                      If sorted_eigs is bool and True sorting is set to "auto",
+                                                      else no sorting is performed.
+                                                      Defaults to False.
+            compression (float, optional): Library compression. If 0, no preselection is performed, else (1. - compression) samples are selected.
+                                           Defaults to 0..
+            optargs (Dict[str, Any], optional): Optimizer arguments for Nonlinear Least Square Optmizer. Defaults to OPT_DEF_ARGS.
+        """
         super().__init__(svd_rank, 0, exact, False, None, False, sorted_eigs, None)
         self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, optargs)
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
         self._compression: float = compression
+        self._indices: np.ndarray = None
     
     def fit(self, data: np.ndarray, time: np.ndarray):
         self._snapshots_holder = Snapshots(data)
@@ -412,6 +468,7 @@ class VarProDMD(DMDBase):
             __idx = select_best_samples_fast(self._snapshots_holder.snapshots, self._compression)
             __data_in = self._snapshots_holder.snapshots[:, __idx]
             __time_in = time[__idx]
+            self._indices = __idx
 
         else:
             __data_in = self._snapshots_holder.snapshots
@@ -421,7 +478,74 @@ class VarProDMD(DMDBase):
         return self
 
     def forcast(self, time: np.ndarray) -> np.ndarray:
+        """ Forcast at given timesteps
+
+        Args:
+            time (np.ndarray): 1D time array.
+
+        Raises:
+            ValueError: If method fit was not called.
+
+        Returns:
+            np.ndarray: Forcast
+        """
         if not self.fitted:
             raise ValueError("Nothing fitted yet!")
 
         return optdmd_predict(self._Atilde.modes, self._Atilde.eigenvalues, self._b, time)
+
+
+    @property
+    def ssr(self) -> float:
+        """Sum squared resdiual
+
+        Raises:
+            ValueError: If method fit was not called.
+
+        Returns:
+            float: Sum Squared Residual (SSR), the smaller the better.
+        """
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet!")
+
+        rho_flat_real = self._optres.fun
+        rho_flat_imag = np.zeros(
+            (rho_flat_real.size // 2,), dtype=np.complex128)
+        rho_flat_imag.real = rho_flat_real[:rho_flat_real.size // 2]
+        rho_flat_imag.imag = rho_flat_real[rho_flat_real.size // 2:]
+
+        sigma = np.linalg.norm(rho_flat_imag)
+        denom = max(self._original_time.size - self._optres.jac.shape[0] // 2 - self._optres.jac.shape[1] // 2, 1)
+        ssr = sigma / np.sqrt(float(denom))
+
+        return ssr
+
+    @property
+    def selected_samples(self) -> np.ndarray:
+        """Return indices OptDMD for creating the library
+
+        Raises:
+            ValueError: If method fit was not called.
+
+        Returns:
+            np.ndarray: Indices
+        """
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet!")
+
+        return self._indices
+
+    @property
+    def opt_stats(self) -> OptimizeResult:
+        """Return optimization statistics
+
+        Raises:
+            ValueError: If method fit was not called.
+
+        Returns:
+            OptimizeResult: Result of optimization.
+        """
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet!")
+
+        return self._optres

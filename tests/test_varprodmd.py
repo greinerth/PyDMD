@@ -218,19 +218,43 @@ def test_varprodmd_class():
     with pytest.raises(ValueError):
         dmd.forcast(time)
 
+    with pytest.raises(ValueError):
+        dmd.ssr
+
+    with pytest.raises(ValueError):
+        dmd.selected_samples
+
+    with pytest.raises(ValueError):
+        dmd.opt_stats
+
     dmd.fit(z, time)
+    assert dmd.fitted
+    assert dmd.eigs.size > 0
+    assert len(dmd.modes.shape) == 2
+    assert dmd.amplitudes.size > 0
+
     __pred = dmd.forcast(time)
 
     __diff = np.abs(__pred - z)
-    __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
+    __mae  = np.sum(np.sum(__diff, axis=0), axis=-1) / \
         z.shape[0] / z.shape[-1]
 
-    assert __mae_0 < 1
+    assert __mae < 1
+    assert dmd.ssr < 1e-3
 
-    dmd = VarProDMD(0, False, False, 0.8)
-    dmd.fit(z, time)
-    __pred = dmd.forcast(time)
+    dmd = VarProDMD(0, False, "unkown_sort", 0.8)
 
-    __diff = np.abs(__pred - z)
-    __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
-        z.shape[0] / z.shape[-1]
+    with pytest.raises(ValueError):
+        dmd.fit(z, time)
+
+    sort_args = ["auto", "real", "imag", "abs", True, False]
+
+    for arg in sort_args:
+        dmd = VarProDMD(0, False, arg, 0.8)
+        dmd.fit(z, time)
+        __pred = dmd.forcast(time)
+        __diff = np.abs(__pred - z)
+        __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
+            z.shape[0] / z.shape[-1]
+        assert dmd.selected_samples.size == int((1 - 0.8) * 100)
+        assert __mae < 1.
