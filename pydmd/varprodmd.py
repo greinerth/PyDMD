@@ -320,7 +320,7 @@ class VarProOperator(DMDOperator):
                                                                             time,
                                                                             self._optargs,
                                                                             self._svd_rank,
-                                                                            self._exact)
+                                                                            ~self._exact)
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
             self._sorted_eigs = "auto"
