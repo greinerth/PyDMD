@@ -289,7 +289,8 @@ class VarProOperator(DMDOperator):
     def __init__(self,
                  svd_rank: Union[float, int],
                  exact: bool,
-                 sorted_eigs: str, optargs: Dict[str, Any]):
+                 sorted_eigs: Union[bool, str],
+                 optargs: Dict[str, Any]):
 
         super().__init__(svd_rank,
                          exact,
@@ -409,9 +410,13 @@ class VarProDMD(DMDBase):
 
         if self._compression > 0:
             __idx = select_best_samples_fast(self._snapshots_holder.snapshots, self._compression)
-            __data_in = self._snapshots_holder.snapshots[:, __idx]
-            __time_in = time[__idx]
-            self._indices = __idx
+            if __idx.size > 1:
+                self._indices = __idx
+            else:
+                self._indices = np.arange((self._snapshots_holder.snapshots.shape[-1]))
+
+            __data_in = self._snapshots_holder.snapshots[:, self._indices]
+            __time_in = time[self._indices]
 
         else:
             __data_in = self._snapshots_holder.snapshots
