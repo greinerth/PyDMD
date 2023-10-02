@@ -323,7 +323,8 @@ class VarProOperator(DMDOperator):
                                                                             ~self._exact)
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
-            self._sorted_eigs = "auto"
+            if self._sorted_eigs:
+                self._sorted_eigs = "auto"
 
         if isinstance(self._sorted_eigs, str):
             if self._sorted_eigs == "auto":
