@@ -12,6 +12,8 @@ from scipy.linalg import qr
 from .dmd import DMDBase
 from .dmdoperator import DMDOperator
 from .snapshots import Snapshots
+from .utils import compute_svd
+
 
 OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
     "method": 'trf',
@@ -233,15 +235,18 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     __y = (data[:, :-1] + data[:, 1:]) / 2.
     __dt = time[1:] - time[:-1]
     __z = (data[:, 1:] - data[:, :-1]) / __dt.reshape((1, -1))
-    __dmdoperator = DMDOperator(rank, False, False, None, False, False)
-    __u_r, __s_r, __v_r = __dmdoperator.compute_operator(__y, __z)
 
+    # __dmdoperator.compute_operator(__y, __z)
+    __u_r, __s_r, __v_r = compute_svd(data, rank)
+
+    __dmdoperator = DMDOperator(__u_r.shape[-1], False, False, None, False, False)
+    __dmdoperator.compute_operator(__y, __z)
     __omegas = __dmdoperator.eigenvalues
 
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
     __omegas_in[:__omegas.shape[-1]] = __omegas.real
     __omegas_in[__omegas.shape[-1]:] = __omegas.imag
-    __data_in = __v_r.conj() * __s_r.reshape((1, -1)) if use_proj else __y.T
+    __data_in = __v_r.conj() * __s_r.reshape((1, -1)) if use_proj else data.T
 
     if __data_in.shape[-1] < __omegas.shape[-1]:
         warnings.warn(
@@ -249,7 +254,7 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
 
     __opthelper = OptimizeHelper(__u_r.shape[-1], *__data_in.shape)
     __opt = __compute_dmd_varpro(
-        __omegas_in, time[:-1], __data_in, __opthelper, **optargs)
+        __omegas_in, time, __data_in, __opthelper, **optargs)
     __omegas.real = __opt.x[:__opt.x.shape[-1] // 2]
     __omegas.imag = __opt.x[__opt.x.shape[-1] // 2:]
     __xi = __u_r @ __opthelper.b_matrix.T if use_proj else __opthelper.b_matrix.T
