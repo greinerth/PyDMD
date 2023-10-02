@@ -200,10 +200,12 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
                           time: np.ndarray,
                           optargs: Dict[str, Any],
                           rank: Union[float, int] = 0.,
-                          use_proj: bool = True) -> Tuple[np.ndarray,
-                                                       np.ndarray,
-                                                       np.ndarray,
-                                                       OptimizeResult]:
+                          use_proj: bool = True,
+                          compression: float = 0) -> Tuple[np.ndarray,
+                                                           np.ndarray,
+                                                           np.ndarray,
+                                                           np.ndarray,
+                                                           OptimizeResult]:
     """Compute DMD given arbitary timesteps.
 
     Args:
@@ -246,20 +248,37 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
     __omegas_in[:__omegas.shape[-1]] = __omegas.real
     __omegas_in[__omegas.shape[-1]:] = __omegas.imag
-    __data_in = __v_r.conj() * __s_r.reshape((1, -1)) if use_proj else data.T
+    __data_in = __v_r.conj().T * __s_r.reshape((-1, 1)) if use_proj else data
+
+    if compression > 0:
+        __idx = select_best_samples_fast(__data_in, compression)
+        if __idx.size > 1:
+            indices = __idx
+        else:
+            indices = np.arange(__data_in.shape[-1])
+        __data_in = __data_in[:, indices]
+        __time_in = time[indices]
+
+    else:
+        # __data_in = self._snapshots_holder.snapshots
+        __time_in = time
+        indices = np.arange(__data_in.shape[-1])
 
     if __data_in.shape[-1] < __omegas.shape[-1]:
         warnings.warn(
             "Attempting to solve underdeterimined system, decrease desired rank!")
 
+    # Transpose for optimization
+    __data_in = __data_in.T
+
     __opthelper = OptimizeHelper(__u_r.shape[-1], *__data_in.shape)
     __opt = __compute_dmd_varpro(
-        __omegas_in, time, __data_in, __opthelper, **optargs)
+        __omegas_in, __time_in, __data_in, __opthelper, **optargs)
     __omegas.real = __opt.x[:__opt.x.shape[-1] // 2]
     __omegas.imag = __opt.x[__opt.x.shape[-1] // 2:]
     __xi = __u_r @ __opthelper.b_matrix.T if use_proj else __opthelper.b_matrix.T
     eigenf = np.linalg.norm(__xi, axis=0)
-    return __xi / eigenf.reshape((1, -1)), __omegas, eigenf, __opt
+    return __xi / eigenf.reshape((1, -1)), __omegas, eigenf, indices, __opt
 
 
 def optdmd_predict(phi: np.ndarray,  # pylint: disable=unused-variable
@@ -290,6 +309,7 @@ class VarProOperator(DMDOperator):
                  svd_rank: Union[float, int],
                  exact: bool,
                  sorted_eigs: Union[bool, str],
+                 compression: float,
                  optargs: Dict[str, Any]):
 
         super().__init__(svd_rank,
@@ -298,7 +318,8 @@ class VarProOperator(DMDOperator):
                          None,
                          sorted_eigs,
                          False)
-        self._optargs = optargs
+        self._optargs: Dict[str, Any] = optargs
+        self._compression: float = compression
 
     def compute_operator(self, data: np.ndarray, time: np.ndarray) -> Tuple[np.ndarray,
                                                                             OptimizeResult]:
@@ -317,11 +338,12 @@ class VarProOperator(DMDOperator):
             Tuple[np.ndarray, OptimizeResult]: DMD amplitudes and the optimization result.
         """
 
-        self._modes, self._eigenvalues, eigenf, opt = compute_varprodmd_any(data,
-                                                                            time,
-                                                                            self._optargs,
-                                                                            self._svd_rank,
-                                                                            ~self._exact)
+        self._modes, self._eigenvalues, eigenf, indices, opt = compute_varprodmd_any(data,
+                                                                                     time,
+                                                                                     self._optargs,
+                                                                                     self._svd_rank,
+                                                                                     ~self._exact,
+                                                                                     self._compression)
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
             if self._sorted_eigs:
@@ -354,7 +376,7 @@ class VarProOperator(DMDOperator):
             self._modes = self._modes[:, idx]
             eigenf = eigenf[idx]
 
-        return eigenf, opt
+        return eigenf, opt, indices
 
 
 class VarProDMD(DMDBase):
@@ -390,7 +412,7 @@ class VarProDMD(DMDBase):
             optargs (Dict[str, Any], optional): Optimizer arguments for Nonlinear Least Square Optmizer. Defaults to OPT_DEF_ARGS.
         """
         super().__init__(svd_rank, 0, exact, False, None, False, sorted_eigs, None)
-        self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, optargs)
+        self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, compression, optargs)
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
         self._compression: float = compression
@@ -408,22 +430,8 @@ class VarProDMD(DMDBase):
         """
         self._snapshots_holder = Snapshots(data)
 
-        if self._compression > 0:
-            __idx = select_best_samples_fast(self._snapshots_holder.snapshots, self._compression)
-            if __idx.size > 1:
-                self._indices = __idx
-            else:
-                self._indices = np.arange((self._snapshots_holder.snapshots.shape[-1]))
-
-            __data_in = self._snapshots_holder.snapshots[:, self._indices]
-            __time_in = time[self._indices]
-
-        else:
-            __data_in = self._snapshots_holder.snapshots
-            __time_in = time
-
-        self._b, self._optres = self._Atilde.compute_operator(__data_in, __time_in)
-        self._original_time = __time_in
+        self._b, self._optres, self._indices = self._Atilde.compute_operator(self._snapshots_holder.snapshots, time)
+        self._original_time = time[self._indices]
         return self
 
     def forecast(self, time: np.ndarray) -> np.ndarray:

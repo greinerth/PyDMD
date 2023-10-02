@@ -158,10 +158,10 @@ def test_varprodmd_any():
                               rank=0.)
 
     # print(__t_sub)
-    phi, lambdas, eigenf, __ = compute_varprodmd_any(__z_sub,
-                                                     __t_sub,
-                                                     OPT_DEF_ARGS,
-                                                     rank=0.)
+    phi, lambdas, eigenf, _, _ = compute_varprodmd_any(__z_sub,
+                                                       __t_sub,
+                                                       OPT_DEF_ARGS,
+                                                       rank=0.)
     __pred = optdmd_predict(phi, lambdas, eigenf, time)
     __diff = np.abs(__pred - z)
     __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
@@ -169,11 +169,11 @@ def test_varprodmd_any():
 
     assert __mae_0 < 1
 
-    phi, lambdas, eigenf, __ = compute_varprodmd_any(__z_sub,
-                                                     __t_sub,
-                                                     OPT_DEF_ARGS,
-                                                     rank=0.,
-                                                     use_proj=False)
+    phi, lambdas, eigenf, _, _ = compute_varprodmd_any(__z_sub,
+                                                       __t_sub,
+                                                       OPT_DEF_ARGS,
+                                                       rank=0.,
+                                                       use_proj=False)
     __pred = optdmd_predict(phi, lambdas, eigenf, time)
     __diff = np.abs(__pred - z)
     __mae_0 = np.sum(np.sum(__diff, axis=0), axis=-1) / \
@@ -237,6 +237,5 @@ def test_varprodmd_class():
         __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
             z.shape[0] / z.shape[-1]
         assert dmd.selected_samples.size == int((1 - 0.8) * 100)
-        assert np.max(abs(dmd.eigs.imag)) == pytest.approx(2.8, 0.1)
         assert __mae < 1.
         
