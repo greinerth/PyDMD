@@ -265,8 +265,8 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     __z = (data[:, 1:] - data[:, :-1]) / __dt.reshape((1, -1))
 
     # __dmdoperator.compute_operator(__y, __z)
-    __omegas = __compute_dmd_ev(__y, __z, rank)
-    __u_r, __s_r, __v_r = compute_svd(data, __omegas.shape[-1])
+    __u_r, __s_r, __v_r = compute_svd(data, rank)
+    __omegas = __compute_dmd_ev(__y, __z, __u_r.shape[-1])
     # __dmdoperator = DMDOperator(__u_r.shape[-1], False, False, None, False, False)
 
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
