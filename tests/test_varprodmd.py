@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
+from pydmd.utils import compute_rank
 from pydmd.varprodmd import OptimizeHelper, \
     __compute_dmd_rho, \
     __compute_dmd_jac, \
+    __compute_rank, \
+    __svht, \
     compute_varprodmd_any, \
     optdmd_predict, \
     select_best_samples_fast, \
@@ -15,6 +18,17 @@ def signal(x_loc: np.ndarray, time: np.ndarray):
     __f_2 = 2. / np.cosh(x_loc) * np.tanh(x_loc) * np.exp(1j*2.8*time)
     return __f_1 + __f_2
 
+
+def test_rank():
+    time = np.linspace(0, 4 * np.pi, 100)
+    x_loc = np.linspace(-10, 10, 1024)
+    __x, __time = np.meshgrid(x_loc, time)
+    z = signal(__x, __time).T
+    s = np.linalg.svd(z, full_matrices=False)[1]
+    assert __compute_rank(s, z.shape[0], z.shape[1], 0) == compute_rank(z, 0)
+    assert __compute_rank(s, z.shape[0], z.shape[1], 4) == 4
+    assert __compute_rank(s, z.shape[0], z.shape[1], 0.8) == compute_rank(z, 0.8)
+    assert __svht(s, z.shape[0], z.shape[1]) == compute_rank(z, 0)
 
 def test_varprodmd_rho():
     data = np.eye(2, 2).astype(np.complex128)

@@ -12,7 +12,7 @@ from scipy.linalg import qr
 from .dmd import DMDBase
 from .dmdoperator import DMDOperator
 from .snapshots import Snapshots
-from .utils import compute_svd
+from .utils import compute_rank
 
 
 OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
@@ -25,6 +25,73 @@ OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
     "xtol": 1e-8,
     "ftol": 1e-8
 }
+
+def __svht(sigma_svd: np.ndarray,  # pylint: disable=unused-variable
+           rows: int,
+           cols: int,
+           sigma: float = None) -> int:
+    """
+    Determine optimal rank for svd matrix approximation,
+    based on https://arxiv.org/pdf/1305.5870.pdf.\n
+    :param sigma_svd: Diagonal matrix of "enonomy" svd\n
+    :type sigma_svd: np.ndarray\n
+    :param rows: number of rows of original data matrix\n
+    :type rows: int\n
+    :param cols: number of columns of original data matrix\n
+    :type cols: int\n
+    :param sigma: Signal noise if known, defaults to None\n
+    :type sigma: float, optional\n
+    :raises ValueError: if sigma_svd is not a 1d-array\n
+    :return: optimal rank\n
+    :rtype: int
+    """
+    if len(sigma_svd.shape) != 1:
+        raise ValueError("Expected 1d array for diagonal matrix!")
+
+    beta = float(cols) / float(rows) if rows > cols else float(rows) / float(cols)
+    tau_star = 0
+
+    if sigma is not None:
+        sigma = abs(sigma)
+        lambda_star = np.sqrt(
+            2 * (beta + 1) + (8 * beta / (beta + 1 + np.sqrt(beta * beta + 14 * beta + 1))))
+        tau_star = lambda_star * sigma * np.sqrt(float(cols) if cols > rows else float(rows))
+    else:
+
+        median = np.median(sigma_svd)
+        beta_square = beta * beta
+        beta_cubic = beta * beta_square
+        omega = 0.56 * beta_cubic - 0.95 * beta_square + 1.82 * beta + 1.43
+        tau_star = median * omega
+
+    rank = np.where(sigma_svd >= tau_star)[0]
+    r_out = 0
+    if rank.size == 0:
+        r_out = sigma_svd.shape[-1]
+
+    else:
+        r_out = rank[-1] + 1
+    return r_out
+
+
+def __compute_rank(sigma_x : np.ndarray,
+                   rows: int,
+                   cols: int,
+                   rank: Union[float, int],
+                   sigma: float = None) -> int:
+    """
+    Compute rank without duplicate SVD computation.
+    """
+    if 0 < rank < 1:
+        cumulative_energy = np.cumsum(np.square(sigma_x) / np.square(sigma_x).sum())
+        __rank = np.searchsorted(cumulative_energy, rank) + 1
+    elif rank == 0:
+        __rank = __svht(sigma_x, rows, cols, sigma)
+    elif rank >= 1:
+        __rank = int(rank)
+    else:
+        raise ValueError(f"Invalid rank specified, provided {rank}!")
+    return min(__rank, sigma_x.size)
 
 def __compute_dmd_ev(x_current: np.ndarray,  # pylint: disable=unused-variable
                      x_next: np.ndarray,
@@ -39,16 +106,16 @@ def __compute_dmd_ev(x_current: np.ndarray,  # pylint: disable=unused-variable
 
     Returns: DMD eigenvalues $\\lambda$
     """
-    # get rid of 0 singular values
-
-    u_x, sigma_x, v_x = compute_svd(x_current, rank)
+   
+    u_x, sigma_x, v_x_t = np.linalg.svd(x_current, full_matrices=False, hermitian=False)
+    rank = __compute_rank(sigma_x, x_current.shape[0], x_current.shape[1], rank)
 
     # columns of v need to be multiplicated with inverse sigma
-    sigma_inv_approx = np.reciprocal(sigma_x)
+    sigma_inv_approx = np.reciprocal(sigma_x[:rank])
 
-    m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x)
+    m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x_t[:rank, :].conj().T)
 
-    a_approx = u_x.conj().T @ m_c
+    a_approx = u_x[:, :rank].conj().T @ m_c
 
     return np.linalg.eigvals(a_approx)
 
@@ -265,8 +332,13 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     __z = (data[:, 1:] - data[:, :-1]) / __dt.reshape((1, -1))
 
     # __dmdoperator.compute_operator(__y, __z)
-    __u_r, __s_r, __v_r = compute_svd(data, rank)
-    __omegas = __compute_dmd_ev(__y, __z, __u_r.shape[-1])
+    __u_r, __s_r, __v_r_t = np.linalg.svd(data)
+    rank = __compute_rank(__s_r, data.shape[0], data.shape[1], rank)
+    __u_r = __u_r[:, :rank]
+    __s_r = __s_r[:rank]
+    __v_r = __v_r_t[:rank, :].conj().T
+
+    __omegas = __compute_dmd_ev(__y, __z, rank)
     # __dmdoperator = DMDOperator(__u_r.shape[-1], False, False, None, False, False)
 
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
