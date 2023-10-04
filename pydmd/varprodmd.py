@@ -10,6 +10,7 @@ import numpy as np
 from scipy.optimize import OptimizeResult, least_squares
 from scipy.linalg import qr
 from .dmd import DMDBase
+from .dmdoperator import DMDOperator
 from .snapshots import Snapshots
 from .utils import compute_svd
 
