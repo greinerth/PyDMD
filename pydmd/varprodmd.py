@@ -48,7 +48,9 @@ def __compute_dmd_ev(x_current: np.ndarray,  # pylint: disable=unused-variable
 
     m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x)
 
-    a_approx = u_x.conj().T @ m_c
+    a_approx = np.linalg.multi_dot([u_x.conj().T,
+                                    x_next,
+                                    sigma_inv_approx.reshape(1, -1) * v_x])
 
     return np.linalg.eigvals(a_approx)
 
