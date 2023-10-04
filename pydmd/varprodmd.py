@@ -26,33 +26,18 @@ OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
     "ftol": 1e-8
 }
 
-def __compute_dmd(x_current: np.ndarray,  # pylint: disable=unused-variable
-                  x_next: np.ndarray,
-                  rank: Union[float, int] = 0,
-                  return_all_props: bool = False,
-                  compute_eigenf: bool = True,
-                  **kwargs) -> tuple:
-    """Compute DMD.
+def __compute_dmd_ev(x_current: np.ndarray,  # pylint: disable=unused-variable
+                     x_next: np.ndarray,
+                     rank: Union[float, int] = 0) -> np.ndarray:
+    """Compute DMD eigenvalues.
 
     Args:
         x_current (np.ndarray): Observable $X$.
         x_next (np.ndarray): Observable $X'$.
-        rank (int, optional): Rank for computation. If -1 svht calculates optimal rank.
-                              Defaults to -1.
-        return_all_props (bool, optional): Return all properties. Defaults to False.
-        compute_eigenf (bool, optional): Compute eigenfunctions. Defaults to True.
+        rank (int, optional): Rank for computation. If 0. svht calculates optimal rank.
+                              Defaults to 0.
 
-    Returns: DMD components
-        tuple: ($\\Phi_x$, $\\lambda$, $\\varphi$)
-                if return_all_props = false,
-                else return
-               ($\\Phi_x$,
-                $\\lambda$,
-                $\\varphi$,
-                $\\hat{W}$,
-                $\\hat{U}_X$,
-                $\\hat{\\sigma}_X$,
-                $\\hat{V}_X$)
+    Returns: DMD eigenvalues $\\lambda$
     """
     # get rid of 0 singular values
 
@@ -64,25 +49,8 @@ def __compute_dmd(x_current: np.ndarray,  # pylint: disable=unused-variable
     m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x)
 
     a_approx = u_x.conj().T @ m_c
-    lambda_eig, w_eig = np.linalg.eig(a_approx)
 
-    # compute dmd modes
-    phi = m_c @ w_eig
-
-    # compute Koopman eigenfunctions
-    # eigf = np.linalg.pinv(phi) @ obs[:, 0] if compute_eigenf else None
-    eigf = np.linalg.solve(w_eig * lambda_eig.reshape((1, -1)), u_x.conj().T @ x_current[:, 0]) if compute_eigenf else None
-
-    if return_all_props:
-        return phi, \
-            lambda_eig, \
-            eigf, \
-            w_eig, \
-            u_x, \
-            sigma_x, \
-            v_x
-
-    return phi, lambda_eig, eigf
+    return np.linalg.eigvals(a_approx)
 
 
 class OptimizeHelper:
@@ -298,7 +266,7 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
 
     # __dmdoperator.compute_operator(__y, __z)
     __u_r, __s_r, __v_r = compute_svd(data, rank)
-    __omegas = __compute_dmd(__y, __z, __u_r.shape[-1], compute_eigenf=False)[1]
+    __omegas = __compute_dmd_ev(__y, __z, __u_r.shape[-1])
     # __dmdoperator = DMDOperator(__u_r.shape[-1], False, False, None, False, False)
 
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
