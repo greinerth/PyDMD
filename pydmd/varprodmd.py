@@ -411,11 +411,12 @@ class VarProDMD(DMDBase):
                                            Defaults to 0..
             optargs (Dict[str, Any], optional): Optimizer arguments for Nonlinear Least Square Optmizer. Defaults to OPT_DEF_ARGS.
         """
-        super().__init__(svd_rank, 0, exact, False, None, False, sorted_eigs, None)
+        # super().__init__(svd_rank, 0, exact, False, None, False, sorted_eigs, None)
         self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, compression, optargs)
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
         self._indices: np.ndarray = None
+        self._modes_activation_bitmask_proxy = None
     
     def fit(self, data: np.ndarray, time: np.ndarray) -> object:
         """ Fit the eigenvalues, modes and amplitudes to data
