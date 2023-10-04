@@ -71,17 +71,16 @@ def __compute_dmd(x_current: np.ndarray,  # pylint: disable=unused-variable
 
     # compute Koopman eigenfunctions
     # eigf = np.linalg.pinv(phi) @ obs[:, 0] if compute_eigenf else None
-    eigf = np.linalg.solve(w_eig * lambda_eig.reshape((1, -1)),
-                           u_x[:, :min_rank].conj().T @ x_current[:, 0]) if compute_eigenf else None
+    eigf = np.linalg.solve(w_eig * lambda_eig.reshape((1, -1)), u_x.conj().T @ x_current[:, 0]) if compute_eigenf else None
 
     if return_all_props:
         return phi, \
             lambda_eig, \
             eigf, \
             w_eig, \
-            u_x[:, :min_rank], \
-            sigma_x[:min_rank], \
-            v_x[:, :min_rank]
+            u_x, \
+            sigma_x, \
+            v_x
 
     return phi, lambda_eig, eigf
 
