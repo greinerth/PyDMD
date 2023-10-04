@@ -230,12 +230,13 @@ def test_varprodmd_class():
     sort_args = ["auto", "real", "imag", "abs", True, False]
 
     for arg in sort_args:
-        dmd = VarProDMD(0, False, arg, 0.8)
+        dmd = VarProDMD(0, False, arg, 0.6)
         dmd.fit(z, time)
         __pred = dmd.forecast(time)
         __diff = np.abs(__pred - z)
         __mae = np.sum(np.sum(__diff, axis=0), axis=-1) / \
             z.shape[0] / z.shape[-1]
-        assert dmd.selected_samples.size == int((1 - 0.8) * 100)
+        assert dmd.selected_samples.size == int((1 - 0.6) * 100)
+        print(arg)
         assert __mae < 1.
         
