@@ -415,7 +415,6 @@ class VarProDMD(DMDBase):
         self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, compression, optargs)
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
-        self._compression: float = compression
         self._indices: np.ndarray = None
     
     def fit(self, data: np.ndarray, time: np.ndarray) -> object:
