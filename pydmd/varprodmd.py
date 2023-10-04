@@ -279,7 +279,7 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
         if __idx.size > 1:
             indices = __idx
         else:
-            indices = np.arange(__data_in.shape[-1])
+            indices = np.arange(data.shape[-1])
         __data_in = __data_in[:, indices]
         __time_in = time[indices]
 
