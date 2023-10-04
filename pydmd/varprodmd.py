@@ -272,14 +272,12 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
     __omegas_in[:__omegas.shape[-1]] = __omegas.real
     __omegas_in[__omegas.shape[-1]:] = __omegas.imag
-    __v_r_t = __v_r.conj().T
-    __data_in = __v_r_t  * __s_r.reshape((-1, 1)) if use_proj else data
+    __data_in = __v_r.conj().T  * __s_r.reshape((-1, 1)) if use_proj else data
 
     if compression > 0:
-        __idx = select_best_samples_fast(__v_r_t if use_proj else data, compression)
+        __idx = select_best_samples_fast(__data_in, compression)
         if __idx.size > 1:
             indices = __idx
-
         else:
             indices = np.arange(__data_in.shape[-1])
         __data_in = __data_in[:, indices]
