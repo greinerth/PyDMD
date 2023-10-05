@@ -378,7 +378,7 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     if len(time.shape) != 1:
         raise ValueError("time needs to be a 1D array")
 
-    u_r, s_r, v_r_t = np.linalg.svd(data)
+    u_r, s_r, v_r_t = np.linalg.svd(data, full_matrices=False)
     __rank = __compute_rank(s_r, data.shape[0], data.shape[1], rank)
     u_r = u_r[:, :__rank]
     s_r = s_r[:__rank]
