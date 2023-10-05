@@ -499,7 +499,7 @@ class VarProOperator(DMDOperator):
                                       time,
                                       self._optargs,
                                       self._svd_rank,
-                                      ~self._exact,
+                                      not self._exact,
                                       self._compression)
 
         # overwrite for lazy sorting
