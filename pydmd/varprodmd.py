@@ -1,7 +1,9 @@
-"""Variable Projection for DMD. Reformulation of original paper
-   (https://epubs.siam.org/doi/abs/10.1137/M1124176) s.t. sparse matrix computation
-   is substiuted by outer products. Further the optimization is reformulated s.t. SciPy's
-   nonlinear least squares optimizer can handle "complex" parameters. 
+"""
+Variable Projection for DMD. Reformulation of original paper
+(https://epubs.siam.org/doi/abs/10.1137/M1124176) s.t. sparse matrix computation
+is substiuted by outer products. Further the optimization is
+reformulated s.t. SciPy's nonlinear least squares optimizer
+can handle "complex" parameters. 
 """
 import warnings
 from typing import Any, Dict, Tuple, Union
@@ -18,11 +20,11 @@ OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
     "tr_solver": 'exact',
     'loss': 'linear',
     "x_scale": 'jac',
-    # "max_nfev": 30,
     "gtol": 1e-8,
     "xtol": 1e-8,
     "ftol": 1e-8
 }
+
 
 def __svht(sigma_svd: np.ndarray,  # pylint: disable=unused-variable
            rows: int,
@@ -30,30 +32,42 @@ def __svht(sigma_svd: np.ndarray,  # pylint: disable=unused-variable
            sigma: float = None) -> int:
     """
     Determine optimal rank for svd matrix approximation,
-    based on https://arxiv.org/pdf/1305.5870.pdf.\n
-    :param sigma_svd: Diagonal matrix of "enonomy" svd\n
-    :type sigma_svd: np.ndarray\n
-    :param rows: number of rows of original data matrix\n
-    :type rows: int\n
-    :param cols: number of columns of original data matrix\n
-    :type cols: int\n
-    :param sigma: Signal noise if known, defaults to None\n
-    :type sigma: float, optional\n
-    :raises ValueError: if sigma_svd is not a 1d-array\n
-    :return: optimal rank\n
-    :rtype: int
+    based on https://arxiv.org/pdf/1305.5870.pdf.
+
+    Args:
+        sigma_svd (np.ndarray):
+            Diagonal matrix of "enonomy" svd
+
+        rows (int):
+            number of rows of original data matrix
+
+        cols (int):
+            number of columns of original data matrix
+
+        sigma (float, optional):
+            Signal noise if known. Defaults to None.
+
+    Raises:
+        ValueError: If sigma_svd is not a 1d-array
+
+    Returns:
+        int: optimal rank
     """
+
     if len(sigma_svd.shape) != 1:
         raise ValueError("Expected 1d array for diagonal matrix!")
 
-    beta = float(cols) / float(rows) if rows > cols else float(rows) / float(cols)
+    beta = float(cols) / \
+        float(rows) if rows > cols else float(rows) / float(cols)
     tau_star = 0
 
     if sigma is not None:
         sigma = abs(sigma)
         lambda_star = np.sqrt(
-            2 * (beta + 1) + (8 * beta / (beta + 1 + np.sqrt(beta * beta + 14 * beta + 1))))
-        tau_star = lambda_star * sigma * np.sqrt(float(cols) if cols > rows else float(rows))
+            2 * (beta + 1) + \
+            (8 * beta / (beta + 1 + np.sqrt(beta * beta + 14 * beta + 1))))
+        tau_star = lambda_star * sigma * \
+            np.sqrt(float(cols) if cols > rows else float(rows))
     else:
 
         median = np.median(sigma_svd)
@@ -72,7 +86,7 @@ def __svht(sigma_svd: np.ndarray,  # pylint: disable=unused-variable
     return r_out
 
 
-def __compute_rank(sigma_x : np.ndarray,
+def __compute_rank(sigma_x: np.ndarray,
                    rows: int,
                    cols: int,
                    rank: Union[float, int],
@@ -81,7 +95,8 @@ def __compute_rank(sigma_x : np.ndarray,
     Compute rank without duplicate SVD computation.
     """
     if 0 < rank < 1:
-        cumulative_energy = np.cumsum(np.square(sigma_x) / np.square(sigma_x).sum())
+        cumulative_energy = np.cumsum(
+            np.square(sigma_x) / np.square(sigma_x).sum())
         __rank = np.searchsorted(cumulative_energy, rank) + 1
     elif rank == 0:
         __rank = __svht(sigma_x, rows, cols, sigma)
@@ -91,30 +106,38 @@ def __compute_rank(sigma_x : np.ndarray,
         raise ValueError(f"Invalid rank specified, provided {rank}!")
     return min(__rank, sigma_x.size)
 
+
 def __compute_dmd_ev(x_current: np.ndarray,  # pylint: disable=unused-variable
                      x_next: np.ndarray,
                      rank: Union[float, int] = 0) -> np.ndarray:
     """Compute DMD eigenvalues.
 
     Args:
-        x_current (np.ndarray): Observable $X$.
-        x_next (np.ndarray): Observable $X'$.
-        rank (int, optional): Rank for computation. If 0. svht calculates optimal rank.
-                              Defaults to 0.
+        x_current (np.ndarray):
+            Observable $X$.
+
+        x_next (np.ndarray):
+            Observable $X'$.
+
+        rank (int, optional):
+            Rank for computation. If 0. svht calculates optimal rank.
+            Defaults to 0.
 
     Returns: DMD eigenvalues $\\lambda$
     """
-   
-    u_x, sigma_x, v_x_t = np.linalg.svd(x_current, full_matrices=False, hermitian=False)
-    __rank = __compute_rank(sigma_x, x_current.shape[0], x_current.shape[1], rank)
+
+    u_x, sigma_x, v_x_t = np.linalg.svd(
+        x_current, full_matrices=False, hermitian=False)
+    __rank = __compute_rank(
+        sigma_x, x_current.shape[0], x_current.shape[1], rank)
 
     # columns of v need to be multiplicated with inverse sigma
     sigma_inv_approx = np.reciprocal(sigma_x[:__rank])
 
-    # m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x_t[:__rank, :].conj().T)
-
-    # a_approx = u_x[:, :__rank].conj().T @ m_c
-    a_approx = np.linalg.multi_dot([u_x[:, :__rank].conj().T, x_next, sigma_inv_approx.reshape(1, -1) * v_x_t[:__rank, :].conj().T])
+    a_approx = np.linalg.multi_dot([u_x[:, :__rank].conj().T,
+                                    x_next,
+                                    sigma_inv_approx.reshape(1, -1) * \
+                                    v_x_t[:__rank, :].conj().T])
 
     return np.linalg.eigvals(a_approx)
 
@@ -141,13 +164,21 @@ def __compute_dmd_rho(alphas: np.ndarray,
     r"""Compute the residual for DMD
 
     Args:
-        alphas (np.ndarray): DMD eigenvalues to optimize, normally :math: `\alpha \in \mathbb{C}^l`,
-                             but here :math: `\alpha \in \mathbb{R}^{2l}` since optimizer cannot
-                             deal with complex numbers.
-        time (np.ndarray): 1D time array.
-        data (np.ndarray): data :math: `X \n C^{m \times n}`.
-        opthelper (OptimizeHelper): Optimization helper to speed up computations mainly for
-                                    jacobian.
+        alphas (np.ndarray):
+            DMD eigenvalues to optimize,
+            where :math: `\alpha \in \mathbb{C}^l`,
+            but here :math: `\alpha \in \mathbb{R}^{2l}`
+            since optimizer cannot deal with complex numbers.
+
+        time (np.ndarray):
+            1D time array.
+
+        data (np.ndarray):
+            data :math: `X \n C^{m \times n}`.
+
+        opthelper (OptimizeHelper):
+            Optimization helper to speed up 
+            computations mainly for jacobian.
 
     Returns:
         np.ndarray: 1D resudial :math: `\rho \in \mathbb{R}^{2mn}`.
@@ -174,7 +205,8 @@ def __compute_dmd_rho(alphas: np.ndarray,
     opthelper.s_inv = __s_inv
     opthelper.v_svd = __v_t.conj().T
     opthelper.rho = rho
-    opthelper.b_matrix = np.linalg.multi_dot([opthelper.v_svd * __s_inv.reshape((1, -1)),
+    opthelper.b_matrix = np.linalg.multi_dot([opthelper.v_svd * \
+                                              __s_inv.reshape((1, -1)),
                                               opthelper.u_svd.conj().T,
                                               data])
     return rho_out
@@ -185,16 +217,25 @@ def __compute_dmd_jac(alphas: np.ndarray,
                       data: np.ndarray,
                       opthelper: OptimizeHelper) -> np.ndarray:
     r"""Compute the Jacobian.
-       Note that the Jacobian needs to be real, so complex and real parts are split.
+       Note that the Jacobian needs to be real,
+       so complex and real parts are split.
 
     Args:
-        alphas (np.ndarray): DMD eigenvalues to optimize, normally :math: `\alpha \in \mathbb{C}^l`,
-                             but here :math: `\alpha \in \mathbb{R}^{2l}` since optimizer cannot
-                             deal with complex numbers.
-        time (np.ndarray): 1D time array.
-        data (np.ndarray): data :math: `X \n C^{m \times n}`
-        opthelper (OptimizeHelper): Optimization helper to speed up computations mainly for
-                                    jacobian. The entities are computed in '__compute_dmd_rho'.
+        alphas (np.ndarray):
+            DMD eigenvalues to optimize,
+            where :math: `\alpha \in \mathbb{C}^l`,
+            but here :math: `\alpha \in \mathbb{R}^{2l}` since optimizer cannot
+            deal with complex numbers.
+
+        time (np.ndarray):
+            1D time array.
+
+        data (np.ndarray):
+            data :math: `X \n C^{m \times n}`
+
+        opthelper (OptimizeHelper):
+            Optimization helper to speed up computations mainly for
+            jacobian. The entities are computed in '__compute_dmd_rho'.
 
     Returns:
         np.ndarray: Jacobian :math: `J \in \mathbb{R}^{mn \times 2l}`.
@@ -210,7 +251,8 @@ def __compute_dmd_jac(alphas: np.ndarray,
         __a_j = __outer - \
             np.linalg.multi_dot(
                 [opthelper.u_svd, opthelper.u_svd.conj().T, __outer])
-        __g_j = np.linalg.multi_dot([opthelper.u_svd * opthelper.s_inv.reshape((1, -1)),
+        __g_j = np.linalg.multi_dot([opthelper.u_svd * \
+                                     opthelper.s_inv.reshape((1, -1)),
                                      np.outer(opthelper.v_svd[j, :].conj(),
                                               d_phi_j.conj() @ opthelper.rho)])
         # Compute the jacobian J_mat_j = - (A_j + G_j).
@@ -242,11 +284,16 @@ def __compute_dmd_varpro(alphas_init: np.ndarray,
     r"""Compute Variable Projection (VarPro) for DMD
 
     Args:
-        alphas_init (np.ndarray): Initial DMD eigenvalues s.t. :math: `\alpha \in \mathbb{R}^{2l}`.
-                                  Normally :math: `\alpha \in \mathbb{R}^{l}`, but optimizer
-                                  requires real numbers.
-        time (np.ndarray): 1D time array.
-        data (np.ndarray): data (np.ndarray): data :math: `X \n C^{m \times n}`.
+        alphas_init (np.ndarray):
+            Initial DMD eigenvalues s.t. :math: `\alpha \in \mathbb{R}^{2l}`.
+            Normally :math: `\alpha \in \mathbb{R}^{l}`, but optimizer
+            requires real numbers.
+
+        time (np.ndarray):
+            1D time array.
+
+        data (np.ndarray):
+            data (np.ndarray): data :math: `X \n C^{m \times n}`.
 
     Returns:
         OptimizeResult: Optimization result.
@@ -264,9 +311,12 @@ def select_best_samples_fast(data: np.ndarray,
 
 
     Args:
-        data (np.ndarray): Input data
-        eps (float, optional): Threshold for sum of absolute normalized
-                               dot products.
+        data (np.ndarray):
+            Input data
+
+        eps (float, optional):
+            Threshold for sum of absolute normalized
+            dot products.
 
     Raises:
         ValueError: If data is not a 2D array.
@@ -280,8 +330,9 @@ def select_best_samples_fast(data: np.ndarray,
     if len(data.shape) != 2:
         raise ValueError("Expected 2D array!")
 
-    if not (0 < comp < 1):
+    if not 0 < comp < 1:
         raise ValueError("Compression must be in (0, 1)]")
+
     n_samples = int(data.shape[-1]*(1. - comp))
     pcolumn = qr(data, mode='economic', pivoting=True)[-1]
     __idx = pcolumn[:n_samples]
@@ -301,23 +352,25 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     """Compute DMD given arbitary timesteps.
 
     Args:
-        data (np.ndarray): data (np.ndarray): data :math: `X \n C^{n \times m}`.
-        rank (Union[float, int], optional): Rank for initial DMD computation. Defaults to 0.
-                                            If rank :math: `r = 0`, the rank is chosen automatically,
-                                            else desired rank is used.
+        data (np.ndarray): data (np.ndarray):
+            data :math: `X \n C^{n \times m}`.
 
-        optargs (Dict[str, Any], optional): Default arguments for 'least_squares' optimizer.
-                                            Defaults to None. Use 'OPT_DEF_ARGS'.
+        rank (Union[float, int], optional):
+            Rank for initial DMD computation. Defaults to 0.
+            If rank :math: `r = 0`, the rank is chosen automatically,
+            else desired rank is used.
+
+        optargs (Dict[str, Any], optional):
+            Default arguments for 'least_squares' optimizer.
+            Defaults to None. Use 'OPT_DEF_ARGS'.
 
     Raises:
         ValueError: If data is not a 2D array.
         ValueError: If time is not a 1D array.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray, np.ndarray, OptimizeResult]: Modes,
-                                                                   cont. eigenvalues,
-                                                                   eigenfunctions and
-                                                                   OptimizationResult.
+        Tuple[np.ndarray, np.ndarray, np.ndarray, OptimizeResult]:
+            Modes, cont. eigenvalues, eigenfunctions and OptimizationResult.
     """
     if len(data.shape) != 2:
         raise ValueError("data needs to be 2D array")
@@ -325,55 +378,48 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     if len(time.shape) != 1:
         raise ValueError("time needs to be a 1D array")
 
-
-    # __dmdoperator.compute_operator(__y, __z)
-    __u_r, __s_r, __v_r_t = np.linalg.svd(data)
-    __rank = __compute_rank(__s_r, data.shape[0], data.shape[1], rank)
-    __u_r = __u_r[:, :__rank]
-    __s_r = __s_r[:__rank]
-    __v_r = __v_r_t[:__rank, :].conj().T
-    __data_in = __v_r.conj().T  * __s_r.reshape((-1, 1)) if use_proj else data
-    # __dmdoperator = DMDOperator(__u_r.shape[-1], False, False, None, False, False)
+    u_r, s_r, v_r_t = np.linalg.svd(data)
+    __rank = __compute_rank(s_r, data.shape[0], data.shape[1], rank)
+    u_r = u_r[:, :__rank]
+    s_r = s_r[:__rank]
+    v_r = v_r_t[:__rank, :].conj().T
+    data_in = v_r.conj().T * s_r.reshape((-1, 1)) if use_proj else data
 
     # trapezoidal derivative approximation
-    __y = (__data_in[:, :-1] + __data_in[:, 1:]) / 2.
-    __dt = time[1:] - time[:-1]
-    __z = (__data_in[:, 1:] - __data_in[:, :-1]) / __dt.reshape((1, -1))
-    __omegas = __compute_dmd_ev(__y, __z, __rank)
-    __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
-    __omegas_in[:__omegas.shape[-1]] = __omegas.real
-    __omegas_in[__omegas.shape[-1]:] = __omegas.imag
-
+    y_in = (data_in[:, :-1] + data_in[:, 1:]) / 2.
+    dt_in = time[1:] - time[:-1]
+    z_in = (data_in[:, 1:] - data_in[:, :-1]) / dt_in.reshape((1, -1))
+    omegas = __compute_dmd_ev(y_in, z_in, __rank)
+    omegas_in = np.zeros((2*omegas.shape[-1],), dtype=np.float64)
+    omegas_in[:omegas.shape[-1]] = omegas.real
+    omegas_in[omegas.shape[-1]:] = omegas.imag
 
     if compression > 0:
-        __idx = select_best_samples_fast(__data_in, compression)
+        __idx = select_best_samples_fast(data_in, compression)
         if __idx.size > 1:
             indices = __idx
         else:
-            indices = np.arange(data.shape[-1])
-        __data_in = __data_in[:, indices]
-        __time_in = time[indices]
+            indices = np.arange(data_in.shape[-1])
+        data_in = data_in[:, indices]
+        time_in = time[indices]
 
     else:
-        # __data_in = self._snapshots_holder.snapshots
-        __time_in = time
-        indices = np.arange(__data_in.shape[-1])
+        time_in = time
+        indices = np.arange(data_in.shape[-1])
 
-    if __data_in.shape[-1] < __omegas.shape[-1]:
-        warnings.warn(
-            "Attempting to solve underdeterimined system, decrease desired rank!")
+    if data_in.shape[-1] < omegas.shape[-1]:
+        msg = "Attempting to solve underdeterimined system. "
+        msg += "Decrese desired rank!"
+        warnings.warn(msg)
 
-    # Transpose for optimization
-    __data_in = __data_in.T
-
-    __opthelper = OptimizeHelper(__u_r.shape[-1], *__data_in.shape)
-    __opt = __compute_dmd_varpro(
-        __omegas_in, __time_in, __data_in, __opthelper, **optargs)
-    __omegas.real = __opt.x[:__opt.x.shape[-1] // 2]
-    __omegas.imag = __opt.x[__opt.x.shape[-1] // 2:]
-    __xi = __u_r @ __opthelper.b_matrix.T if use_proj else __opthelper.b_matrix.T
-    eigenf = np.linalg.norm(__xi, axis=0)
-    return __xi / eigenf.reshape((1, -1)), __omegas, eigenf, indices, __opt
+    opthelper = OptimizeHelper(u_r.shape[-1], *data_in.shape)
+    opt = __compute_dmd_varpro(
+        omegas_in, time_in, data_in.T, opthelper, **optargs)
+    omegas.real = opt.x[:opt.x.shape[-1] // 2]
+    omegas.imag = opt.x[opt.x.shape[-1] // 2:]
+    xi = u_r @ opthelper.b_matrix.T if use_proj else opthelper.b_matrix.T
+    eigenf = np.linalg.norm(xi, axis=0)
+    return xi / eigenf.reshape((1, -1)), omegas, eigenf, indices, opt
 
 
 def optdmd_predict(phi: np.ndarray,  # pylint: disable=unused-variable
@@ -398,8 +444,10 @@ class VarProOperator(DMDOperator):
     """Variable Projection Operator
 
     Args:
-        DMDOperator (DMDOperator): The classic DMD operator
+        DMDOperator (DMDOperator):
+            The classic DMD operator
     """
+
     def __init__(self,
                  svd_rank: Union[float, int],
                  exact: bool,
@@ -418,30 +466,41 @@ class VarProOperator(DMDOperator):
         self._exact = exact
         self._optargs: Dict[str, Any] = optargs
         self._compression: float = compression
+        self._modes: np.ndarray = None
+        self._eigenvalues: np.ndarray = None
 
-    def compute_operator(self, data: np.ndarray, time: np.ndarray) -> Tuple[np.ndarray,
-                                                                            OptimizeResult]:
+    def compute_operator(self, data: np.ndarray, time: np.ndarray) \
+          -> Tuple[np.ndarray,
+                   OptimizeResult]:
         """Compute the VarProDMD operator
 
         Args:
-            data (np.ndarray): Measurements/Observables
-            time (Union[np.ndarray, float]): Timesteps or sampling time. If time is float
-                                             the parameter is interpreted as sampling time,
-                                             else it is interpreted as 1D array
+            data (np.ndarray):
+                Measurements/Observables
+
+            time (Union[np.ndarray, float]):
+                Timesteps or sampling time. If time is float
+                the parameter is interpreted as sampling time,
+                else it is interpreted as 1D array
 
         Raises:
             ValueError: If sorted_eigs parameter is not supported.
 
         Returns:
-            Tuple[np.ndarray, OptimizeResult]: DMD amplitudes and the optimization result.
+            Tuple[np.ndarray, OptimizeResult]:
+                DMD amplitudes and the optimization result.
         """
 
-        self._modes, self._eigenvalues, eigenf, indices, opt = compute_varprodmd_any(data,
-                                                                                     time,
-                                                                                     self._optargs,
-                                                                                     self._svd_rank,
-                                                                                     ~self._exact,
-                                                                                     self._compression)
+        (self._modes,
+         self._eigenvalues,
+         eigenf,
+         indices,
+         opt) = compute_varprodmd_any(data,
+                                      time,
+                                      self._optargs,
+                                      self._svd_rank,
+                                      ~self._exact,
+                                      self._compression)
 
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
@@ -457,7 +516,8 @@ class VarProOperator(DMDOperator):
                 var_imag = np.var(eigs_imag)
                 var_abs = np.var(__eigs_abs)
                 __array = np.array([var_real, var_imag, var_abs])
-                eigs_abs = (eigs_real, eigs_imag, __eigs_abs)[np.argmax(__array)]
+                eigs_abs = (eigs_real, eigs_imag, __eigs_abs)[
+                    np.argmax(__array)]
 
             elif self._sorted_eigs == "real":
                 eigs_abs = np.abs(self._eigenvalues.real)
@@ -470,7 +530,7 @@ class VarProOperator(DMDOperator):
             else:
                 raise ValueError(f"{self._sorted_eigs} not supported!")
 
-            idx = np.argsort(eigs_abs)[::-1] # sort from biggest to smallest
+            idx = np.argsort(eigs_abs)[::-1]  # sort from biggest to smallest
             self._eigenvalues = self._eigenvalues[idx]
             self._modes = self._modes[:, idx]
             eigenf = eigenf[idx]
@@ -480,43 +540,58 @@ class VarProOperator(DMDOperator):
 
 class VarProDMD(DMDBase):
     """Variable Projection for DMD.
-       Variable Projection is reformulated for SciPy's nonlinear least squares solver.
+       Variable Projection is reformulated for SciPy's
+       nonlinear least squares solver.
        Further simplifications avoid using sparse matrices.
 
     Args:
         DMDBase (DMDBase): DMDBase class
     """
+
     def __init__(self,
-                 svd_rank: Union[float, int]=0,
-                 exact: bool=False,
-                 sorted_eigs: Union[bool, str]=False,
+                 svd_rank: Union[float, int] = 0,
+                 exact: bool = False,
+                 sorted_eigs: Union[bool, str] = False,
                  compression: float = 0.,
                  optargs: Dict[str, Any] = OPT_DEF_ARGS):
         """VarProDMD constructor
 
         Args:
-            svd_rank (Union[float, int], optional): Rank for initial DMD computation. Defaults to 0.
-                                                    If rank :math: `r = 0`, the rank is chosen automatically,
-                                                    else desired rank is used.
+            svd_rank (Union[float, int], optional):
+                Rank for initial DMD computation. Defaults to 0.
+                If rank :math: `r = 0`, the rank is chosen automatically,
+                else desired rank is used.
 
-            exact (bool, optional): Compute exact VarProDMD (no projection) if True,
-                                    else compute VarProDMD in low dimensional space. Defaults to False.
-            sorted_eigs (Union[bool, str], optional): Sort eigenvalues.
-                                                      If sorted_eigs is a string, supported modes are ["auto", "real", "imag", "abs"].
-                                                      If sorted_eigs is bool and True sorting is set to "auto",
-                                                      else no sorting is performed.
-                                                      Defaults to False.
-            compression (float, optional): Library compression. If 0, no preselection is performed, else (1. - compression) samples are selected.
-                                           Defaults to 0..
-            optargs (Dict[str, Any], optional): Optimizer arguments for Nonlinear Least Square Optmizer. Defaults to OPT_DEF_ARGS.
+            exact (bool, optional): 
+                Compute exact VarProDMD (no projection) if True,
+                else compute VarProDMD in low dimensional space.
+                Defaults to False.
+
+            sorted_eigs (Union[bool, str], optional): 
+                Sort eigenvalues.
+                If sorted_eigs is a string, supported modes are
+                ["auto", "real", "imag", "abs"].
+                If sorted_eigs is bool and True sorting is set to "auto",
+                else no sorting is performed.
+                Defaults to False.
+
+            compression (float, optional):
+                Library compression. If 0, no preselection is performed,
+                else (1. - compression) samples are selected. Defaults to 0..
+
+            optargs (Dict[str, Any], optional):
+                Optimizer arguments for 
+                Nonlinear Least Square Optmizer.
+                Defaults to OPT_DEF_ARGS.
         """
-        # super().__init__(svd_rank, 0, exact, False, None, False, sorted_eigs, None)
-        self._Atilde = VarProOperator(svd_rank, exact, sorted_eigs, compression, optargs)
+
+        self._Atilde = VarProOperator(
+            svd_rank, exact, sorted_eigs, compression, optargs)
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
         self._indices: np.ndarray = None
         self._modes_activation_bitmask_proxy = None
-    
+
     def fit(self, data: np.ndarray, time: np.ndarray) -> object:
         """ Fit the eigenvalues, modes and amplitudes to data
 
@@ -529,7 +604,8 @@ class VarProDMD(DMDBase):
         """
 
         self._snapshots_holder = Snapshots(data)
-        self._b, self._optres, self._indices = self._Atilde.compute_operator(data, time)
+        self._b, self._optres, self._indices = self._Atilde.compute_operator(
+            data, time)
         self._original_time = time
         self._dmd_time = time[self._indices]
 
@@ -550,8 +626,9 @@ class VarProDMD(DMDBase):
         if not self.fitted:
             raise ValueError("Nothing fitted yet!")
 
-        return optdmd_predict(self._Atilde.modes, self._Atilde.eigenvalues, self._b, time)
-
+        return optdmd_predict(self._Atilde.modes,
+                              self._Atilde.eigenvalues,
+                              self._b, time)
 
     @property
     def ssr(self) -> float:
@@ -573,7 +650,9 @@ class VarProDMD(DMDBase):
         rho_flat_imag.imag = rho_flat_real[rho_flat_real.size // 2:]
 
         sigma = np.linalg.norm(rho_flat_imag)
-        denom = max(self._original_time.size - self._optres.jac.shape[0] // 2 - self._optres.jac.shape[1] // 2, 1)
+        denom = max(self._original_time.size -
+                    self._optres.jac.shape[0] // 2
+                    - self._optres.jac.shape[1] // 2, 1)
         ssr = sigma / np.sqrt(float(denom))
 
         return ssr
