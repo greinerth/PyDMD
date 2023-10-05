@@ -409,7 +409,7 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
 
     if data_in.shape[-1] < omegas.shape[-1]:
         msg = "Attempting to solve underdeterimined system. "
-        msg += "Decrese desired rank!"
+        msg += "Decrease desired rank or compression!"
         warnings.warn(msg)
 
     opthelper = OptimizeHelper(u_r.shape[-1], *data_in.shape)
