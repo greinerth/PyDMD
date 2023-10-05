@@ -5,14 +5,12 @@
 """
 import warnings
 from typing import Any, Dict, Tuple, Union
-
 import numpy as np
 from scipy.optimize import OptimizeResult, least_squares
 from scipy.linalg import qr
 from .dmd import DMDBase
 from .dmdoperator import DMDOperator
 from .snapshots import Snapshots
-from .utils import compute_rank
 
 
 OPT_DEF_ARGS: Dict[str, Any] = {  # pylint: disable=unused-variable
@@ -108,14 +106,15 @@ def __compute_dmd_ev(x_current: np.ndarray,  # pylint: disable=unused-variable
     """
    
     u_x, sigma_x, v_x_t = np.linalg.svd(x_current, full_matrices=False, hermitian=False)
-    rank = __compute_rank(sigma_x, x_current.shape[0], x_current.shape[1], rank)
+    __rank = __compute_rank(sigma_x, x_current.shape[0], x_current.shape[1], rank)
 
     # columns of v need to be multiplicated with inverse sigma
-    sigma_inv_approx = np.reciprocal(sigma_x[:rank])
+    sigma_inv_approx = np.reciprocal(sigma_x[:__rank])
 
-    m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x_t[:rank, :].conj().T)
+    # m_c = x_next @ (sigma_inv_approx.reshape(1, -1) * v_x_t[:__rank, :].conj().T)
 
-    a_approx = u_x[:, :rank].conj().T @ m_c
+    # a_approx = u_x[:, :__rank].conj().T @ m_c
+    a_approx = np.linalg.multi_dot([u_x[:, :__rank].conj().T, x_next, sigma_inv_approx.reshape(1, -1) * v_x_t[:__rank, :].conj().T])
 
     return np.linalg.eigvals(a_approx)
 
@@ -326,25 +325,25 @@ def compute_varprodmd_any(data: np.ndarray,  # pylint: disable=unused-variable
     if len(time.shape) != 1:
         raise ValueError("time needs to be a 1D array")
 
-    # trapezoidal derivative approximation
-    __y = (data[:, :-1] + data[:, 1:]) / 2.
-    __dt = time[1:] - time[:-1]
-    __z = (data[:, 1:] - data[:, :-1]) / __dt.reshape((1, -1))
 
     # __dmdoperator.compute_operator(__y, __z)
     __u_r, __s_r, __v_r_t = np.linalg.svd(data)
-    rank = __compute_rank(__s_r, data.shape[0], data.shape[1], rank)
-    __u_r = __u_r[:, :rank]
-    __s_r = __s_r[:rank]
-    __v_r = __v_r_t[:rank, :].conj().T
-
-    __omegas = __compute_dmd_ev(__y, __z, rank)
+    __rank = __compute_rank(__s_r, data.shape[0], data.shape[1], rank)
+    __u_r = __u_r[:, :__rank]
+    __s_r = __s_r[:__rank]
+    __v_r = __v_r_t[:__rank, :].conj().T
+    __data_in = __v_r.conj().T  * __s_r.reshape((-1, 1)) if use_proj else data
     # __dmdoperator = DMDOperator(__u_r.shape[-1], False, False, None, False, False)
 
+    # trapezoidal derivative approximation
+    __y = (__data_in[:, :-1] + __data_in[:, 1:]) / 2.
+    __dt = time[1:] - time[:-1]
+    __z = (__data_in[:, 1:] - __data_in[:, :-1]) / __dt.reshape((1, -1))
+    __omegas = __compute_dmd_ev(__y, __z, __rank)
     __omegas_in = np.zeros((2*__omegas.shape[-1],), dtype=np.float64)
     __omegas_in[:__omegas.shape[-1]] = __omegas.real
     __omegas_in[__omegas.shape[-1]:] = __omegas.imag
-    __data_in = __v_r.conj().T  * __s_r.reshape((-1, 1)) if use_proj else data
+
 
     if compression > 0:
         __idx = select_best_samples_fast(__data_in, compression)
@@ -407,13 +406,16 @@ class VarProOperator(DMDOperator):
                  sorted_eigs: Union[bool, str],
                  compression: float,
                  optargs: Dict[str, Any]):
-
+        """"""
         super().__init__(svd_rank,
                          exact,
                          False,
                          None,
                          sorted_eigs,
                          False)
+        self._sorted_eigs = sorted_eigs
+        self._svd_rank = svd_rank
+        self._exact = exact
         self._optargs: Dict[str, Any] = optargs
         self._compression: float = compression
 
@@ -440,6 +442,7 @@ class VarProOperator(DMDOperator):
                                                                                      self._svd_rank,
                                                                                      ~self._exact,
                                                                                      self._compression)
+
         # overwrite for lazy sorting
         if isinstance(self._sorted_eigs, bool):
             if self._sorted_eigs:
@@ -524,10 +527,12 @@ class VarProDMD(DMDBase):
         Returns:
             object: Reference to VarProDMD instance.
         """
-        self._snapshots_holder = Snapshots(data)
 
-        self._b, self._optres, self._indices = self._Atilde.compute_operator(self._snapshots_holder.snapshots, time)
-        self._original_time = time[self._indices]
+        self._snapshots_holder = Snapshots(data)
+        self._b, self._optres, self._indices = self._Atilde.compute_operator(data, time)
+        self._original_time = time
+        self._dmd_time = time[self._indices]
+
         return self
 
     def forecast(self, time: np.ndarray) -> np.ndarray:
