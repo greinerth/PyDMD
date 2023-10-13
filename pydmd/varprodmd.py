@@ -553,7 +553,7 @@ class VarProDMD(DMDBase):
                  exact: bool = False,
                  sorted_eigs: Union[bool, str] = False,
                  compression: float = 0.,
-                 optargs: Dict[str, Any] = OPT_DEF_ARGS):
+                 optargs: Dict[str, Any] = None):
         """VarProDMD constructor
 
         Args:
@@ -584,6 +584,8 @@ class VarProDMD(DMDBase):
                 Nonlinear Least Square Optmizer.
                 Defaults to OPT_DEF_ARGS.
         """
+        if optargs is None:
+            optargs = OPT_DEF_ARGS
 
         self._Atilde = VarProOperator(
             svd_rank, exact, sorted_eigs, compression, optargs)
