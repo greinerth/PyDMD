@@ -77,6 +77,26 @@ def sls(
     return xi_out
 
 
+def _cmat2real(X: np.ndarray) -> np.ndarray:
+    out = np.zeros((2 * X.shape[0], 2 * X.shape[1]))
+    out[: X.shape[0], : X.shape[1]] = X.real
+    out[X.shape[0] :, X.shape[1] :] = X.real
+    out[: X.shape[0], X.shape[1] :] = -X.imag
+    out[X.shape[0] :, : X.shape[1]] = X.imag
+    return out
+
+
+def _rmat2complex(X: np.ndarray) -> np.ndarray:
+    out = np.zeros((X.shape[0] // 2, X.shape[1] // 2), dtype=complex)
+    out.real = X[: X.shape[0] // 2, : X.shape[1] // 2]
+    out.imag = X[X.shape[0] // 2 :, : X.shape[1] // 2]
+    return out
+
+
+def _cvec2real(X: np.ndarray) -> np.ndarray:
+    return np.concatenate([X.real, X.imag], axis=0)
+
+
 def _compute_dmd(
     X: np.ndarray, Y: np.ndarray, rank: Union[float, int]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -195,12 +215,7 @@ def _omega_real_jac(
     b_rows, b_cols = b_mat.shape
     jac_tensor = a_mat_deriv[None] * b_mat.T.reshape(b_cols, 1, b_rows)
     jac = np.concatenate(jac_tensor, axis=0)
-    jac_real = np.zeros((2 * jac.shape[0], 2 * jac.shape[1]))
-    jac_real[: jac.shape[0], : jac.shape[1]] = jac.real
-    jac_real[jac.shape[0] :, jac.shape[1] :] = jac.real
-    jac_real[: jac.shape[0], jac.shape[1] :] = -jac.imag
-    jac_real[jac.shape[0] :, : jac.shape[1]] = jac.imag
-    return jac_real
+    return _cmat2real(jac)
 
 
 def _omega_real_rho(
@@ -232,9 +247,7 @@ def _b_real_gradient(
 
     # jacobian needs to be conjugated and transposed, jacobian is a_mat
     grad_unconstr = np.ravel(-a_mat.conj().T @ rho, "F")
-    grad_unconst_real = np.zeros((2 * grad_unconstr.shape[0]))
-    grad_unconst_real[: grad_unconstr.shape[0]] = grad_unconstr.real
-    grad_unconst_real[grad_unconstr.shape[0] :] = grad_unconstr.imag
+    grad_unconst_real = _cvec2real(grad_unconstr)
     cost = 0.5 * np.square(np.linalg.norm(rho, 2)) + alpha * np.linalg.norm(
         b_flat_real, 1
     )
@@ -264,6 +277,7 @@ def _block_coordinate_descent(
     )
     data_in = data_in.T
     phi_scaled = phi.T.copy()  # set initial value
+    phi_in = phi_scaled @ U_r.T if use_proj else phi_scaled
 
     omegas_real = np.zeros((2 * eigvals.shape[0],))
     omegas_real[: eigvals.shape[0]] = eigvals.real
@@ -272,6 +286,8 @@ def _block_coordinate_descent(
     cost = cost_prev = float("inf")
 
     for i in range(max_iter):
+        phi_scaled = phi_in @ U_r.conj() if use_proj else phi_in
+
         nls_opt_res = least_squares(
             _omega_real_rho,
             omegas_real,
@@ -288,7 +304,6 @@ def _block_coordinate_descent(
         data_in_reg = data.T if use_proj else data_in
 
         # project modes in high dimensional space if necessary
-        phi_in = phi_scaled @ U_r.T if use_proj else phi_scaled
         phi_in_flat = np.ravel(phi_in, "F")
         phi_in_flat_real = np.zeros((2 * phi_in_flat.shape[0],))
         phi_in_flat_real[: phi_in_flat.shape[0]] = phi_in_flat.real
@@ -300,10 +315,8 @@ def _block_coordinate_descent(
         phi_flat = np.zeros((phi_out_flat_real.shape[0] // 2,), dtype=complex)
         phi_flat.real = phi_out_flat_real[: phi_out_flat_real.shape[0] // 2]
         phi_flat.imag = phi_out_flat_real[phi_out_flat_real.shape[0] // 2 :]
-        phi = np.reshape(phi_flat, (omegas.shape[0], -1), "F")
+        phi_in = np.reshape(phi_flat, (omegas.shape[0], -1), "F")
 
-        # project back to lowdim space if necessary
-        phi_scaled = phi @ U_r.conj() if use_proj else phi
         cost += nls_opt_res.cost
 
         if abs(cost_prev - cost) < eps:
@@ -311,8 +324,8 @@ def _block_coordinate_descent(
 
         cost_prev = cost
 
-    phi = phi.T
-    # print(phi)
+    phi = phi_in.T
+
     amps = np.linalg.norm(phi, 2, axis=0)
     msk = ~np.isclose(amps, 0.0)
 
@@ -320,6 +333,7 @@ def _block_coordinate_descent(
     opt_info = MappingProxyType(
         {"nls": nls_opt_res, "iter": i + 1, "cost": cost, "lbfgs_info": info}
     )
+
     return phi_out, omegas, amps, opt_info
 
 

@@ -133,10 +133,11 @@ def test_block_coordinate_descent() -> None:
     x_loc = np.linspace(-10, 10, 1024)
     z = signal(*np.meshgrid(x_loc, time)).T
     phi, omegas, amps, _ = _block_coordinate_descent(
-        z, time, 0, max_iter=5, eps=1e-6, reg=1.0, use_proj=True
+        z, time, 0, max_iter=10, eps=1e-6, reg=1e-3, use_proj=True
     )
     rec = varprodmd_predict(phi, omegas, amps, time)
     diff = z - rec
     errors = np.sqrt(np.sum(np.abs(diff), axis=0))
     error = errors.mean()
+
     assert error < 20
