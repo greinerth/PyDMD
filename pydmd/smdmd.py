@@ -1,3 +1,5 @@
+"""Sparse Mode DMD module"""
+
 from .varprodmd import OPT_DEF_ARGS
 from .dmd import DMDBase
 from .dmdoperator import DMDOperator
@@ -5,7 +7,7 @@ from .utils import compute_svd
 import numpy as np
 from typing import Union
 from types import MappingProxyType
-from scipy.optimize import least_squares, fmin_l_bfgs_b
+from scipy.optimize import least_squares, OptimizeResult
 
 LBFGS_ARGS = MappingProxyType(
     {
@@ -13,68 +15,6 @@ LBFGS_ARGS = MappingProxyType(
         "m": 10,
     }
 )
-
-
-def sls(
-    x_data: np.ndarray,  # pylint: disable=unused-variable
-    theta: np.ndarray,
-    eps: float = 1e-4,
-    n_iter: int = 10,
-) -> np.ndarray:
-    r"""
-    Sequential Least Square Algorithm
-
-    :param theta: Koopman operator approximation
-    :type theta: np.ndarray
-    :param x_data: Data to be evaluated
-    :type x_data: np.ndarray
-    :param eps: Threshold where data is discarded, defaults to 1e-4
-    :type eps: float, optional
-    :param n_iter: number of iterations to perform to prune small entries, defaults to 10
-    :type n_iter: int, optional
-    :raises ValueError: When x_data and theta missmatch
-    :raises ValueError: When number of iterations is le 0
-    :return: sparse parameters :math:`\xi`
-    :rtype: np.ndarray
-    """
-    if len(x_data.shape) < 2:
-        _x_data = x_data.reshape(-1, 1)
-    else:
-        _x_data = x_data
-
-    if len(theta.shape) != 2:
-        raise ValueError("Expected nxm matrix as input for library!")
-
-    # consider shape for pseudoinversion
-    if theta.shape[0] != _x_data.shape[0]:
-        raise ValueError("Shape missmatch")
-
-    if n_iter <= 0:
-        raise ValueError("Number of iterations must be positive")
-
-    if eps <= 0:
-        raise ValueError("Threshold must be positive")
-
-    xi_out = np.zeros((theta.shape[1], _x_data.shape[1]), _x_data.dtype)
-    msk = np.zeros(xi_out.shape, dtype=bool)
-    indices = np.arange(theta.shape[1])
-
-    for _ in range(n_iter):
-        for col in range(_x_data.shape[1]):
-            result = np.linalg.lstsq(
-                theta[:, ~msk[:, col]], _x_data[:, col], rcond=None
-            )[0]
-
-            xi_out[~msk[:, col], col] = result
-            _idcs = indices[~msk[:, col]]
-            _msk = abs(xi_out[_idcs, col]) < eps
-            msk[_idcs[_msk], col] = True
-            xi_out[_idcs[_msk], col] = 0
-
-    if len(x_data.shape) < 2:
-        xi_out = np.squeeze(xi_out, axis=-1)
-    # print(xi_out)
-    return xi_out
 
 
 def _cmat2real(X: np.ndarray) -> np.ndarray:
@@ -97,19 +37,27 @@ def _cvec2real(X: np.ndarray) -> np.ndarray:
     return np.concatenate([X.real, X.imag], axis=0)
 
 
+def _rvec2complex(X: np.ndarray) -> np.ndarray:
+    out = np.zeros((X.shape[0] // 2), dtype=complex)
+    out.real = X[: X.shape[0] // 2]
+    out.imag = X[X.shape[0] // 2 :]
+    return out
+
+
 def _compute_dmd(
     X: np.ndarray, Y: np.ndarray, rank: Union[float, int]
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute dmd modes, eigenvalues and amplitudes.
        DMD assumes skinny tall data matrix (n >> m)
     :param X: "current" measurements
     :type X: np.ndarray
     :param Y: "next" measurements
     :type Y: np.ndarray
-    :param rank: desired rank, can be float or int. C.f. "compute_svd" for further details.
+    :param rank: desired rank, can be float or int.
+                 C.f. "compute_svd" for further details.
     :type rank: Union[float, int]
     :return: eigenvalues, eigenvectors, and amplitudes.
-    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     U_r, S_r, V_r = compute_svd(X, rank)
     S_r_inv = np.reciprocal(S_r)
@@ -144,46 +92,54 @@ def _smdmd_preprocessing(
     time: np.ndarray,
     rank: Union[float, int] = 0,
     use_proj: bool = True,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    r"""Preprocess data and calculate intial quantities for further optimization.
+) -> np.ndarray:
+    r"""Preprocess data and calculate intial quantities
+        for further optimization.
 
     :param X: Datamatrix :math:`\boldsymbol{X} \in \mathbb{C}^{n \times m}`
     :type X: np.ndarray
     :param time: (ordered) measured time.
     :type time: np.ndarray
-    :param rank: desired rank, can be float or int. C.f. "compute_svd" for further details. Defaults to 0.
+    :param rank: desired rank, can be float or int.
+                 C.f. "compute_svd" for further details. Defaults to 0.
     :type rank: Union[float, int], optional
-    :param use_proj: Project data to low dimensional space for faster NLS-optimization, defaults to True.
+    :param use_proj: Project data to low dimensional space for NLS-optimization,
+                     defaults to True.
     :type use_proj: bool, optional
-    :return: (rank reduced) Projector, (projected) data, scaled dmd modes, cont. eigenvalues.
+    :return: (rank reduced) Projector,
+             (projected) data,
+             scaled dmd modes,
+             cont. eigenvalues.
     :rtype: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     """
     U_r, S_r, V_r = compute_svd(X, rank)
     data = S_r[:, None] * V_r.conj().T if use_proj else X
+
     y = (data[:, :-1] + data[:, 1:]) / 2.0
     dt = time[1:] - time[:-1]
     x_dot = (data[:, 1:] - data[:, :-1]) / dt[None]
 
-    extended = x_dot.shape[0] < x_dot.shape[1]
     eigvals, eigvec, amps = (
         _compute_extended_dmd(x_dot, y)
-        if extended
+        if x_dot.shape[0] < x_dot.shape[1]
         else _compute_dmd(x_dot, y, U_r.shape[-1])[1:]
     )
     phi_scaled = eigvec * amps[None]
-
     if not use_proj:
         phi_scaled = U_r @ phi_scaled
 
-    return U_r, data, phi_scaled, eigvals
+    return eigvals
 
 
 def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
-    r"""Compute matrix A, which depends on cont. eigenvalues and measurement times.
+    r"""Compute matrix A, which depends on cont. eigenvalues
+        and measurement times.
 
-    :param omega: Continuous complex eigenvalues :math:`\boldsymbol{\omega} \in \mathbb{C}^l`.
+    :param omega: Continuous complex eigenvalues
+                  :math:`\boldsymbol{\omega} \in \mathbb{C}^l`.
     :type omega: np.ndarray
-    :param time: (Ordered) measurement time :math:`\boldsymbol{\t} \in \mathbb{R}^m`.
+    :param time: (Ordered) measurement time
+                 :math:`\boldsymbol{\t} \in \mathbb{R}^m`.
     :type time: np.ndarray
     :return: :math:`\boldsymbol{A} \in \mathbb{C}^{l \times m}`
     :rtype: np.ndarray
@@ -192,26 +148,30 @@ def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
 
 
 def _omega_real_jac(
-    omega: np.ndarray, b_mat: np.ndarray, time: np.ndarray, *args
+    omega: np.ndarray, time: np.ndarray, **kwargs
 ) -> np.ndarray:
     r"""Calcualte real valued Jacobian for optimization.
 
     :param omega: Current vector of eigenvalues encoded as pure real vector.
     :type omega: np.ndarray
-    :param b_mat: Transposed DMD modes or low dimensional eigenvectors of DMD computation.
+    :param b_mat: Transposed DMD modes or low dimensional eigenvectors
+                  of DMD computation.
     :type b_mat: np.ndarray
     :param time: (Ordered) measurement times.
     :type time: np.ndarray
-    :return: Real valued jacobian :math:`\boldsymbol{J}_{real} = \begin{bmatrix}
-                                                                 \Re\{\boldsymbol{J}\} & -\Im\{\boldsymbol{J}\}\\
-                                                                 \Im\{\boldsymbol{J}\} & \Re\{\boldsymbol{J}\}
-                                                                 \end{bmatrix}`.
+    :return: Real valued jacobian 
+             :math:`\boldsymbol{J}_{real} = \begin{bmatrix}
+                                              \Re\{\boldsymbol{J}\} & -\Im\{\boldsymbol{J}\}\\
+                                              \Im\{\boldsymbol{J}\} & \Re\{\boldsymbol{J}\}
+                                            \end{bmatrix}`.
     :rtype: np.ndarray
     """
-    omega_imag = np.zeros((omega.shape[0] // 2), dtype=complex)
-    omega_imag.real = omega[: omega.shape[0] // 2]
-    omega_imag.imag = omega[omega.shape[0] // 2 :]
-    a_mat_deriv = _get_a_mat(omega_imag, time) * time[:, None]
+    omega_imag = _rvec2complex(omega)
+    a_mat = _get_a_mat(omega_imag, time)
+    a_mat_deriv = a_mat * time[:, None]
+
+    b_mat = np.linalg.lstsq(a_mat, kwargs["data"], rcond=None)[0]
+    # b_mat = kwargs["b_mat"]
     b_rows, b_cols = b_mat.shape
     jac_tensor = a_mat_deriv[None] * b_mat.T.reshape(b_cols, 1, b_rows)
     jac = np.concatenate(jac_tensor, axis=0)
@@ -219,122 +179,99 @@ def _omega_real_jac(
 
 
 def _omega_real_rho(
-    omega: np.ndarray, b_mat: np.ndarray, time: np.ndarray, data: np.ndarray
+    omega: np.ndarray, time: np.ndarray, **kwargs
 ) -> np.ndarray:
     omega_imag = np.zeros((omega.shape[0] // 2), dtype=complex)
     omega_imag.real = omega[: omega.shape[0] // 2]
     omega_imag.imag = omega[omega.shape[0] // 2 :]
     a_mat = _get_a_mat(omega_imag, time)
-
-    # Original data is transposed, rows of the data matrix need to be stacked.
-    rho = np.ravel(data - a_mat @ b_mat, "C")
-    rho_out = np.zeros((2 * rho.shape[0],))
-    rho_out[: rho.shape[0]] = rho.real
-    rho_out[rho.shape[0] :] = rho.imag
-    return rho_out
+    b_mat = np.linalg.lstsq(a_mat, kwargs["data"], rcond=None)[0]
+    rho = np.ravel(kwargs["data"] - a_mat @ b_mat, "C")
+    return _cvec2real(rho)
 
 
-def _b_real_gradient(
-    b_flat_real: np.ndarray, a_mat: np.ndarray, data: np.ndarray, alpha: float
-) -> tuple[float, np.ndarray]:
-    b_flat = np.zeros((b_flat_real.shape[0] // 2,), dtype=complex)
-    b_flat.real = b_flat_real[: b_flat_real.shape[0] // 2]
-    b_flat.imag = b_flat_real[b_flat_real.shape[0] // 2 :]
+def _omega_real_rho_sparse(
+    omega: np.ndarray, time: np.ndarray, **kwargs
+) -> np.ndarray:
+    omega_imag = _rvec2complex(omega)
+    a_mat = _get_a_mat(omega_imag, time)
+    b_mat = np.linalg.lstsq(a_mat, kwargs["data"], rcond=None)[0]
 
-    # flat vector consists of stacked columns of original b-matrix
-    b_mat = np.reshape(b_flat, (a_mat.shape[1], -1), order="F")
-    rho = data - a_mat @ b_mat
+    # u_mat = prox_soft_l1(b_mat_real, kwargs["gamma"])
+    if "u_mat" not in kwargs:
+        delta = b_mat
+        kwargs["u_mat"] = b_mat
+    else:
+        u_mat = kwargs["u_mat"]
+        delta = b_mat - u_mat
+        kwargs["u_mat"] = (
+            b_mat
+            - 0.5
+            * kwargs["gamma"]
+            * np.reciprocal(np.abs(u_mat))
+            * u_mat.conj()
+        )
+    rho = np.ravel(np.linalg.lstsq(a_mat.conj().T, delta, rcond=None)[0], "C")
+    return _cvec2real(rho)
 
-    # jacobian needs to be conjugated and transposed, jacobian is a_mat
-    grad_unconstr = np.ravel(-a_mat.conj().T @ rho, "F")
-    grad_unconst_real = _cvec2real(grad_unconstr)
-    cost = 0.5 * np.square(np.linalg.norm(rho, 2)) + alpha * np.linalg.norm(
-        b_flat_real, 1
+
+def _solve_sparse(
+    data_in: np.ndarray,
+    omegas_init: np.ndarray,
+    time: np.ndarray,
+    reg: float,
+    nls_args: dict,
+) -> OptimizeResult:
+
+    kw = {"data": data_in, "gamma": reg}
+    return least_squares(
+        _omega_real_rho_sparse if reg > 0 else _omega_real_rho,
+        omegas_init,
+        _omega_real_jac,
+        args=(time,),
+        kwargs=kw,
+        **nls_args
     )
-    return cost, grad_unconst_real + alpha * np.sign(grad_unconst_real)
 
 
-def _block_coordinate_descent(
+def solve_sparse_mode_dmd(
     data: np.ndarray,
     time: np.ndarray,
-    rank: Union[float, int],
-    use_proj: bool = True,
-    max_iter: int = 10,
-    eps: float = 1e-3,
-    reg: float = 1e-15,
+    rank: Union[float | int] = 0,
+    reg: float = 1e-6,
     nls_args: dict = None,
-    lbfgs_arsg: dict = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, OptimizeResult]:
+    """Solve Sparse Mode DMD optimization with NLS.
 
+    :param data: Original data
+    :type data: np.ndarray
+    :param time: (Ordered) measurement time
+    :type time: np.ndarray
+    :param rank: Rank of data matrix, c.f. "compute_svd" for further details,
+                 defaults to 0
+    :type rank: Union[float  |  int], optional
+    :param reg: regularization for optimization, defaults to 1e-6
+    :type reg: float, optional
+    :param nls_args: NLS optimizer arguments, defaults to None
+    :type nls_args: dict, optional
+    :return: Modes, cont. eigenvalues, amplitudes and optimization statistics.
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray, OptimizeResult]
+    """
     if nls_args is None:
         nls_args = OPT_DEF_ARGS
+    omegas = _smdmd_preprocessing(data, time, rank, True)
 
-    if lbfgs_arsg is None:
-        lbfgs_arsg = LBFGS_ARGS
+    omegas_init = _cvec2real(omegas)
+    opt_res = _solve_sparse(data.T, omegas_init, time, reg, nls_args)
+    omegas_opt = _rvec2complex(opt_res.x)
+    phi_opt = np.linalg.lstsq(_get_a_mat(omegas_opt, time), data.T, rcond=None)[
+        0
+    ]
 
-    U_r, data_in, phi, eigvals = _smdmd_preprocessing(
-        data, time, rank, use_proj
-    )
-    data_in = data_in.T
-    phi_scaled = phi.T.copy()  # set initial value
-    phi_in = phi_scaled @ U_r.T if use_proj else phi_scaled
-
-    omegas_real = np.zeros((2 * eigvals.shape[0],))
-    omegas_real[: eigvals.shape[0]] = eigvals.real
-    omegas_real[eigvals.shape[0] :] = eigvals.imag
-    nls_opt_res = None
-    cost = cost_prev = float("inf")
-
-    for i in range(max_iter):
-        phi_scaled = phi_in @ U_r.conj() if use_proj else phi_in
-
-        nls_opt_res = least_squares(
-            _omega_real_rho,
-            omegas_real,
-            _omega_real_jac,
-            args=(phi_scaled, time, data_in),
-            **nls_args
-        )
-        omegas_real = nls_opt_res.x
-
-        omegas = np.zeros((omegas_real.shape[0] // 2,), dtype=complex)
-        omegas.real = omegas_real[: omegas_real.shape[0] // 2]
-        omegas.imag = omegas_real[omegas_real.shape[0] // 2 :]
-        a_mat = _get_a_mat(omegas, time)
-        data_in_reg = data.T if use_proj else data_in
-
-        # project modes in high dimensional space if necessary
-        phi_in_flat = np.ravel(phi_in, "F")
-        phi_in_flat_real = np.zeros((2 * phi_in_flat.shape[0],))
-        phi_in_flat_real[: phi_in_flat.shape[0]] = phi_in_flat.real
-        phi_in_flat_real[phi_in_flat.shape[0] :] = phi_in_flat.imag
-        phi_out_flat_real, cost, info = fmin_l_bfgs_b(
-            _b_real_gradient, phi_in_flat_real, args=(a_mat, data_in_reg, reg)
-        )
-
-        phi_flat = np.zeros((phi_out_flat_real.shape[0] // 2,), dtype=complex)
-        phi_flat.real = phi_out_flat_real[: phi_out_flat_real.shape[0] // 2]
-        phi_flat.imag = phi_out_flat_real[phi_out_flat_real.shape[0] // 2 :]
-        phi_in = np.reshape(phi_flat, (omegas.shape[0], -1), "F")
-
-        cost += nls_opt_res.cost
-
-        if abs(cost_prev - cost) < eps:
-            break
-
-        cost_prev = cost
-
-    phi = phi_in.T
-
+    phi = phi_opt.T
     amps = np.linalg.norm(phi, 2, axis=0)
-    msk = ~np.isclose(amps, 0.0)
-
-    phi_out = phi[:, msk] / amps[None]
-    opt_info = MappingProxyType(
-        {"nls": nls_opt_res, "iter": i + 1, "cost": cost, "lbfgs_info": info}
-    )
-
-    return phi_out, omegas, amps, opt_info
+    phi *= np.reciprocal(amps[None])
+    return phi, omegas_opt, amps, OptimizeResult
 
 
 class SpModeOperator(DMDOperator):
