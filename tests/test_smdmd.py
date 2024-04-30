@@ -1,21 +1,25 @@
 """Sparse Mode DMD Unit Test"""
+
 import numpy as np
+import pytest
 
 from pydmd.smdmd import (
+    SmDMD,
+    _cmat2real,
     _compute_dmd,
     _compute_extended_dmd,
+    _cvec2real,
     _get_a_mat,
     _omega_real_jac,
     _omega_real_rho,
-    _smdmd_preprocessing,
-    _cmat2real,
-    _cvec2real,
     _rmat2complex,
     _rvec2complex,
+    _smdmd_preprocessing,
     solve_sparse_mode_dmd,
 )
 from pydmd.utils import compute_svd
 from pydmd.varprodmd import varprodmd_predict
+
 from .test_varprodmd import signal
 
 
@@ -98,7 +102,7 @@ def test_omega_jac() -> None:
     jac_real[jac.shape[0] :, jac.shape[1] :] = jac.real
 
     omegas_real = np.concatenate([omegas.real, omegas.imag])
-    kw = {"data": a_mat @ b_mat}
+    kw = {"data": a_mat @ b_mat, "b_mat": b_mat}
     jac_out = _omega_real_jac(omegas_real, time, **kw)
     np.testing.assert_almost_equal(jac_real, jac_out)
 
@@ -174,36 +178,103 @@ def test_sparse_mode_dmd_reg() -> None:
         "xtol": 1e-8,
         "ftol": 1e-8,
     }
-    phi, omegas, amps, _ = solve_sparse_mode_dmd(
-        z, time, 0, 1, nls_args=nls_args
+    phi, omegas, amps, opt, n_iter = solve_sparse_mode_dmd(
+        z, time, 0, alpha=1e-9, beta=1e-5, nls_args=nls_args, max_iter=10
     )
     rec = varprodmd_predict(phi, omegas, amps, time)
     diff = z - rec
     errors = np.sqrt(np.sum(np.abs(diff), axis=0))
     error = errors.mean()
-    assert error < 20
+    msk = (phi.real != 0.0) & (phi.imag != 0.0)
+    numel = np.sum(msk)
+
+    # ensure sparsity of modes
+    assert 0 < numel < np.prod(phi.shape)
+    assert n_iter <= 10
+    assert opt.cost >= 0
+    assert error < 20.0
 
 
-def test_sparse_mode_dmd_no_reg() -> None:
+def test_smdmd_class() -> None:
+    """Test sparse mode DMD operator (core)"""
     """Test sparse mode nls-optimization (core)"""
     time = np.linspace(0, 4 * np.pi, 100)
     x_loc = np.linspace(-10, 10, 1024)
     z = signal(*np.meshgrid(x_loc, time)).T
-    nls_args = {
-        "method": "trf",
-        "tr_solver": "exact",
-        "loss": "linear",
-        "x_scale": "jac",
-        "gtol": 1e-8,
-        "xtol": 1e-8,
-        "ftol": 1e-8,
-    }
 
-    phi, omegas, amps, _ = solve_sparse_mode_dmd(
-        z, time, 0, 0, nls_args=nls_args
-    )
-    rec = varprodmd_predict(phi, omegas, amps, time)
+    dmd = SmDMD(svd_rank=0, exact=False, alpha=1e-9, beta=1e-5, eps=1e-6)
+    assert not dmd.fitted
+
+    with pytest.raises(ValueError, match="Nothing fitted yet!"):
+        dmd.opt_stats
+
+    dmd.fit(z, time)
+    assert dmd.fitted
+
+    rec = dmd.forecast(time)
     diff = z - rec
     errors = np.sqrt(np.sum(np.abs(diff), axis=0))
     error = errors.mean()
-    assert error < 20
+    msk = (dmd.modes.real != 0.0) & (dmd.modes.imag != 0.0)
+    numel = np.sum(msk)
+
+    # ensure sparsity of modes
+    assert 0 < numel < np.prod(dmd.modes.shape)
+    assert dmd.n_iter <= 10
+    assert dmd.opt_stats.cost >= 0
+    assert error < 20.0
+    assert dmd.frequency.shape[0] == dmd.eigs.shape[0]
+    dynamics = dmd.dynamics
+    assert dynamics.shape[0] == dmd.amplitudes.shape[0]
+    assert dynamics.shape[1] == time.shape[0]
+    assert dmd.ssr > 0.0
+    np.testing.assert_array_equal(dmd.frequency, dmd.eigs.imag / 2 / np.pi)
+    np.testing.assert_array_equal(dmd.growth_rate, dmd.eigs.real)
+
+    dmd = SmDMD(
+        svd_rank=0,
+        exact=False,
+        alpha=1e-9,
+        beta=1e-5,
+        eps=1e-6,
+        sorted_eigs="real",
+    )
+    dmd.fit(z, time)
+    new_rec = dmd.forecast(time)
+    np.testing.assert_almost_equal(rec, new_rec)
+    diff = z - new_rec
+    errors = np.sqrt(np.sum(np.abs(diff), axis=0))
+    error = errors.mean()
+    assert error < 20.0
+
+    dmd = SmDMD(
+        svd_rank=0,
+        exact=False,
+        alpha=1e-9,
+        beta=1e-5,
+        eps=1e-6,
+        sorted_eigs="imag",
+    )
+    dmd.fit(z, time)
+    new_rec = dmd.forecast(time)
+    np.testing.assert_almost_equal(rec, new_rec)
+    diff = z - new_rec
+    errors = np.sqrt(np.sum(np.abs(diff), axis=0))
+    error = errors.mean()
+    assert error < 20.0
+
+    dmd = SmDMD(
+        svd_rank=0,
+        exact=False,
+        alpha=1e-9,
+        beta=1e-5,
+        eps=1e-6,
+        sorted_eigs="abs",
+    )
+    dmd.fit(z, time)
+    new_rec = dmd.forecast(time)
+    np.testing.assert_almost_equal(rec, new_rec)
+    diff = z - new_rec
+    errors = np.sqrt(np.sum(np.abs(diff), axis=0))
+    error = errors.mean()
+    assert error < 20.0

@@ -1,13 +1,19 @@
 """Sparse Mode DMD module"""
 
-from .varprodmd import OPT_DEF_ARGS
+from collections import namedtuple
+from types import MappingProxyType
+from typing import Any, Dict, NamedTuple, Union
+
+import numpy as np
+from scipy.optimize import OptimizeResult, least_squares
+
 from .dmd import DMDBase
 from .dmdoperator import DMDOperator
+from .snapshots import Snapshots
 from .utils import compute_svd
-import numpy as np
-from typing import Union
-from types import MappingProxyType
-from scipy.optimize import least_squares, OptimizeResult
+from .varprodmd import OPT_DEF_ARGS, varprodmd_predict
+
+NLSOptResult = namedtuple("NLS", ["Phi", "omega", "amps", "opt", "n_iter"])
 
 LBFGS_ARGS = MappingProxyType(
     {
@@ -17,7 +23,28 @@ LBFGS_ARGS = MappingProxyType(
 )
 
 
+def _soft_l1_prox(X_real: np.ndarray, alpha: float) -> np.ndarray:
+    """Compute soft l1 prox operator for sparse regression
+
+    :param X_real: array of real numbers
+    :type X_real: np.ndarray
+    :param alpha: prox parameter alpha (used for clamping the values)
+    :type alpha: float
+    :return: new "support" array for sparse regression
+    :rtype: np.ndarray
+    """
+    return np.sign(X_real) * np.maximum(np.abs(X_real) - alpha, 0.0)
+
+
 def _cmat2real(X: np.ndarray) -> np.ndarray:
+    """Convert complex matrix to real matrix
+
+    :param X: Complex input matirx
+    :type X: np.ndarray
+    :return: Real matrix s.t. complex dot product
+             is represented by matrix of real numbers.
+    :rtype: np.ndarray
+    """
     out = np.zeros((2 * X.shape[0], 2 * X.shape[1]))
     out[: X.shape[0], : X.shape[1]] = X.real
     out[X.shape[0] :, X.shape[1] :] = X.real
@@ -27,6 +54,13 @@ def _cmat2real(X: np.ndarray) -> np.ndarray:
 
 
 def _rmat2complex(X: np.ndarray) -> np.ndarray:
+    """Convert real matrix to complex matrix
+
+    :param X: Real matrix
+    :type X: np.ndarray
+    :return: Matrix consisting of complex numbers.
+    :rtype: np.ndarray
+    """
     out = np.zeros((X.shape[0] // 2, X.shape[1] // 2), dtype=complex)
     out.real = X[: X.shape[0] // 2, : X.shape[1] // 2]
     out.imag = X[X.shape[0] // 2 :, : X.shape[1] // 2]
@@ -34,10 +68,25 @@ def _rmat2complex(X: np.ndarray) -> np.ndarray:
 
 
 def _cvec2real(X: np.ndarray) -> np.ndarray:
+    r"""Convert complex vector to real vector
+
+    :param X: Complex input vector
+    :type X: np.ndarray
+    :return: Real vector where real part and imaginary part
+             of original vector are stacked.
+    :rtype: np.ndarray
+    """
     return np.concatenate([X.real, X.imag], axis=0)
 
 
 def _rvec2complex(X: np.ndarray) -> np.ndarray:
+    """Transform real vector to complex vector
+
+    :param X: Real vector, where real- and imaginary part are stacked.
+    :type X: np.ndarray
+    :return: Compex vector.
+    :rtype: np.ndarray
+    """
     out = np.zeros((X.shape[0] // 2), dtype=complex)
     out.real = X[: X.shape[0] // 2]
     out.imag = X[X.shape[0] // 2 :]
@@ -124,6 +173,7 @@ def _smdmd_preprocessing(
         if x_dot.shape[0] < x_dot.shape[1]
         else _compute_dmd(x_dot, y, U_r.shape[-1])[1:]
     )
+
     phi_scaled = eigvec * amps[None]
     if not use_proj:
         phi_scaled = U_r @ phi_scaled
@@ -154,9 +204,6 @@ def _omega_real_jac(
 
     :param omega: Current vector of eigenvalues encoded as pure real vector.
     :type omega: np.ndarray
-    :param b_mat: Transposed DMD modes or low dimensional eigenvectors
-                  of DMD computation.
-    :type b_mat: np.ndarray
     :param time: (Ordered) measurement times.
     :type time: np.ndarray
     :return: Real valued jacobian 
@@ -170,8 +217,7 @@ def _omega_real_jac(
     a_mat = _get_a_mat(omega_imag, time)
     a_mat_deriv = a_mat * time[:, None]
 
-    b_mat = np.linalg.lstsq(a_mat, kwargs["data"], rcond=None)[0]
-    # b_mat = kwargs["b_mat"]
+    b_mat = kwargs["b_mat"]
     b_rows, b_cols = b_mat.shape
     jac_tensor = a_mat_deriv[None] * b_mat.T.reshape(b_cols, 1, b_rows)
     jac = np.concatenate(jac_tensor, axis=0)
@@ -185,52 +231,26 @@ def _omega_real_rho(
     omega_imag.real = omega[: omega.shape[0] // 2]
     omega_imag.imag = omega[omega.shape[0] // 2 :]
     a_mat = _get_a_mat(omega_imag, time)
-    b_mat = np.linalg.lstsq(a_mat, kwargs["data"], rcond=None)[0]
-    rho = np.ravel(kwargs["data"] - a_mat @ b_mat, "C")
-    return _cvec2real(rho)
-
-
-def _omega_real_rho_sparse(
-    omega: np.ndarray, time: np.ndarray, **kwargs
-) -> np.ndarray:
-    omega_imag = _rvec2complex(omega)
-    a_mat = _get_a_mat(omega_imag, time)
-    b_mat = np.linalg.lstsq(a_mat, kwargs["data"], rcond=None)[0]
-
-    # u_mat = prox_soft_l1(b_mat_real, kwargs["gamma"])
-    if "u_mat" not in kwargs:
-        delta = b_mat
-        kwargs["u_mat"] = b_mat
-    else:
-        u_mat = kwargs["u_mat"]
-        delta = b_mat - u_mat
-        kwargs["u_mat"] = (
-            b_mat
-            - 0.5
-            * kwargs["gamma"]
-            * np.reciprocal(np.abs(u_mat))
-            * u_mat.conj()
-        )
-    rho = np.ravel(np.linalg.lstsq(a_mat.conj().T, delta, rcond=None)[0], "C")
+    rho = np.ravel(kwargs["data"] - a_mat @ kwargs["b_mat"], "C")
     return _cvec2real(rho)
 
 
 def _solve_sparse(
     data_in: np.ndarray,
     omegas_init: np.ndarray,
+    b_mat_init: np.ndarray,
     time: np.ndarray,
-    reg: float,
-    nls_args: dict,
+    nls_args: Dict[str, Any],
 ) -> OptimizeResult:
 
-    kw = {"data": data_in, "gamma": reg}
+    kw = {"data": data_in, "b_mat": b_mat_init}
     return least_squares(
-        _omega_real_rho_sparse if reg > 0 else _omega_real_rho,
-        omegas_init,
+        _omega_real_rho,
+        _cvec2real(omegas_init),
         _omega_real_jac,
         args=(time,),
         kwargs=kw,
-        **nls_args
+        **nls_args,
     )
 
 
@@ -238,9 +258,22 @@ def solve_sparse_mode_dmd(
     data: np.ndarray,
     time: np.ndarray,
     rank: Union[float | int] = 0,
-    reg: float = 1e-6,
-    nls_args: dict = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, OptimizeResult]:
+    use_proj: bool = True,
+    alpha: float = 1e-9,
+    beta: float = 1e-6,
+    max_iter: int = 10,
+    thresh: float = 1e-6,
+    nls_args: Dict[str, Any] = None,
+) -> NamedTuple(
+    "NLS",
+    [
+        ("Phi", np.ndarray),
+        ("omega", np.ndarray),
+        ("amps", np.ndarray),
+        ("opt", OptimizeResult),
+        ("n_iter", int),
+    ],
+):
     """Solve Sparse Mode DMD optimization with NLS.
 
     :param data: Original data
@@ -259,63 +292,317 @@ def solve_sparse_mode_dmd(
     """
     if nls_args is None:
         nls_args = OPT_DEF_ARGS
-    omegas = _smdmd_preprocessing(data, time, rank, True)
 
-    omegas_init = _cvec2real(omegas)
-    opt_res = _solve_sparse(data.T, omegas_init, time, reg, nls_args)
-    omegas_opt = _rvec2complex(opt_res.x)
-    phi_opt = np.linalg.lstsq(_get_a_mat(omegas_opt, time), data.T, rcond=None)[
-        0
-    ]
+    omegas = _smdmd_preprocessing(data, time, rank, use_proj)
+    data_in = data.T
+    prev_cost = float("inf")
+    phi = np.linalg.lstsq(_get_a_mat(omegas, time), data_in, rcond=None)[0]
+    u_mat = np.zeros_like(phi)
 
-    phi = phi_opt.T
-    amps = np.linalg.norm(phi, 2, axis=0)
-    phi *= np.reciprocal(amps[None])
-    return phi, omegas_opt, amps, OptimizeResult
+    for i in range(max_iter):
 
+        # optimize w.r.t omega
+        opt_res = _solve_sparse(data_in, omegas, phi, time, nls_args)
+        omegas = _rvec2complex(opt_res.x)
 
-class SpModeOperator(DMDOperator):
-    def __init__(
-        self,
-        svd_rank,
-        exact,
-        forward_backward,
-        rescale_mode,
-        sorted_eigs,
-        tikhonov_regularization,
-    ):
-        super().__init__(
-            svd_rank,
-            exact,
-            forward_backward,
-            rescale_mode,
-            sorted_eigs,
-            tikhonov_regularization,
+        # optimize w.r.t phi
+        a_mat = _get_a_mat(omegas, time)
+        ata_plus_kappa_eye = a_mat.conj().T @ a_mat
+        ata_plus_kappa_eye[np.diag_indices_from(ata_plus_kappa_eye)] += (
+            alpha + 0.0j
         )
 
-    def compute_operator(self, X, Y):
-        return super().compute_operator(X, Y)
+        phi = np.linalg.solve(
+            ata_plus_kappa_eye, u_mat + a_mat.conj().T @ data_in
+        )
+
+        # perform soft l1 prox operator to generate new support
+        u_mat.real = _soft_l1_prox(phi.real, beta)
+        u_mat.imag = _soft_l1_prox(phi.imag, beta)
+
+        if abs(prev_cost - opt_res.cost) < thresh:
+            break
+
+        prev_cost = opt_res.cost
+
+    # use sparse support as modes
+    phi = u_mat.T
+    amps = np.linalg.norm(phi, 2, axis=0)
+    phi *= np.reciprocal(amps[None])
+    return NLSOptResult(phi, omegas, amps, opt_res, i + 1)
+
+
+class SmDMDOperator(DMDOperator):
+    def __init__(
+        self,
+        svd_rank: Union[float, int],
+        exact: bool,
+        sorted_eigs: Union[bool, str],
+        alpha: float = 1e-6,
+        beta: float = 1e-9,
+        eps: float = 1e-12,
+        max_iter: int = 10,
+        opt_args: Dict[str, Any] = None,
+    ):
+        super().__init__(svd_rank, exact, False, None, sorted_eigs, False)
+        self._alpha: float = abs(alpha)
+        self._beta: float = abs(beta)
+        self._maxiter: int = abs(max_iter)
+        self._eps: float = abs(eps)
+        self._optargs: dict = opt_args
+
+    def compute_operator(self, X, time):
+        self._modes, self._eigenvalues, amps, opt_res, n_iter = (
+            solve_sparse_mode_dmd(
+                X,
+                time,
+                self._svd_rank,
+                not self._exact,
+                self._alpha,
+                self._beta,
+                self._maxiter,
+                self._eps,
+                self._optargs,
+            )
+        )
+
+        # overwrite for lazy sorting
+        if isinstance(self._sorted_eigs, bool):
+            if self._sorted_eigs:
+                self._sorted_eigs = "auto"
+
+        if isinstance(self._sorted_eigs, str):
+            if self._sorted_eigs == "auto":
+                eigs_real = self._eigenvalues.real
+                eigs_imag = self._eigenvalues.imag
+                _eigs_abs = np.abs(self._eigenvalues)
+                var_real = np.var(eigs_real)
+                var_imag = np.var(eigs_imag)
+                var_abs = np.var(_eigs_abs)
+                array = np.array([var_real, var_imag, var_abs])
+                eigs_abs = (eigs_real, eigs_imag, _eigs_abs)[np.argmax(array)]
+
+            elif self._sorted_eigs == "real":
+                eigs_abs = np.abs(self._eigenvalues.real)
+
+            elif self._sorted_eigs == "imag":
+                eigs_abs = np.abs(self._eigenvalues.imag)
+
+            elif self._sorted_eigs == "abs":
+                eigs_abs = np.abs(self._eigenvalues)
+            else:
+                raise ValueError(f"{self._sorted_eigs} not supported!")
+
+            idx = np.argsort(eigs_abs)[::-1]  # sort from biggest to smallest
+            self._eigenvalues = self._eigenvalues[idx]
+            self._modes = self._modes[:, idx]
+            amps = amps[idx]
+
+        return amps, opt_res, n_iter
 
 
 class SmDMD(DMDBase):
+    """Sparse Mode DMD assumes that the original signal can be decomposed
+    into sparse modes, non-sparse eigenvalues and non-sparse amplitudes.
+    SmDMD relies on block gradient decent optimization using scipy's
+    non-linear least_squares optimization and a soft_l1 prox operator.
+    """
+
     def __init__(
         self,
-        svd_rank=0,
-        tlsq_rank=0,
-        exact=False,
-        opt=False,
-        rescale_mode=None,
-        forward_backward=False,
-        sorted_eigs=False,
-        tikhonov_regularization=None,
+        svd_rank: Union[float, int] = 0,
+        alpha: float = 1e-6,
+        beta: float = 1e-9,
+        eps: float = 1e-12,
+        max_iter: int = 10,
+        exact: bool = False,
+        sorted_eigs: Union[bool, str] = False,
+        optargs: Dict[str, Any] = None,
     ):
-        super().__init__(
-            svd_rank,
-            tlsq_rank,
-            exact,
-            opt,
-            rescale_mode,
-            forward_backward,
-            sorted_eigs,
-            tikhonov_regularization,
+        r"""
+        SmDMD constructor.
+
+        :param svd_rank: Desired SVD rank.
+            If rank :math:`r = 0`, the optimal rank is
+            determined automatically. If rank is a float s.t. :math:`0 < r < 1`,
+            the cumulative energy of the singular values is used
+            to determine the optimal rank.
+            If rank is an integer and :math:`r > 0`,
+            the desired rank is used iff possible. Defaults to 0.
+        :type svd_rank: Union[float, int], optional
+        :param exact: Precompute intial cont. eigenvalues in
+            low dimensional space if `exact=False`.
+            Else the eigenvalue computation is performed
+            in the original space.
+            Defaults to False.
+        :type exact: bool, optional
+        :param sorted_eigs: Sort eigenvalues.
+            If `sorted_eigs=True`, the variance of the absolute values
+            of the complex eigenvalues
+            :math:`\left(\sqrt{\omega_i \cdot \bar{\omega}_i}\right)`,
+            the variance absolute values of the real parts
+            :math:`\left|\Re\{{\omega_i}\}\right|`
+            and the variance of the absolute values of the imaginary parts
+            :math:`\left|\Im\{{\omega_i}\}\right|` is computed.
+            The eigenvalues are then sorted according
+            to the highest variance (from highest to lowest).
+            If `sorted_eigs=False`, no sorting is performed.
+            If the parameter is a string and set to sorted_eigs='auto',
+            the eigenvalues are sorted accoring to the variances
+            of previous mentioned quantities.
+            If `sorted_eigs='real'` the eigenvalues are sorted
+            w.r.t. the absolute values of the real parts
+            of the eigenvalues (from highest to lowest).
+            If `sorted_eigs='imag'` the eigenvalues are sorted
+            w.r.t. the absolute values of the imaginary parts
+            of the eigenvalues (from highest to lowest).
+            If `sorted_eigs='abs'` the eigenvalues are sorted
+            w.r.t. the magnitude of the eigenvalues
+            :math:`\left(\sqrt{\omega_i \cdot \bar{\omega}_i}\right)`
+            (from highest to lowest).
+            Defaults to False.
+        :type sorted_eigs: Union[bool, str], optional
+        :param optargs: Arguments for 'least_squares' optimizer.
+            If set to None, `OPT_DEF_ARGS` are used as default parameters.
+            Defaults to None.
+        :type optargs: Dict[str, Any], optional
+        """
+        self._Atilde = SmDMDOperator(
+            svd_rank, exact, sorted_eigs, alpha, beta, eps, max_iter, optargs
         )
+        self._optres: OptimizeResult = None
+        self._snapshots_holder: Snapshots = None
+        self._modes_activation_bitmask_proxy = None
+
+    def fit(self, X: np.ndarray, time: np.ndarray) -> object:
+        r"""
+        Fit the eigenvalues, modes and eigenfunctions/amplitudes
+        to measurements.
+
+        :param X: Measurements
+            :math:`\boldsymbol{X} \in \mathbb{C}^{n \times m}`.
+        :type X: np.ndarray
+        :param time: 1d array of timestamps where measurements were taken.
+        :type time: np.ndarray
+        :return: SmDMD instance.
+        :rtype: object
+        """
+
+        self._snapshots_holder = Snapshots(X)
+        (self._b, self._optres, self._niter) = self._Atilde.compute_operator(
+            self._snapshots_holder.snapshots.astype(np.complex128), time
+        )
+        self._original_time = time
+        self._dmd_time = time
+
+        return self
+
+    def forecast(self, time: np.ndarray) -> np.ndarray:
+        r"""
+        Forecast measurements at given timestamps `time`.
+
+        :param time: Desired times for forcasting as 1d array.
+        :type time: np.ndarray
+        :raises ValueError: If method `fit(X, time)` was not called.
+        :return: Predicted measurements :math:`\hat{\boldsymbol{X}}`.
+        :rtype: np.ndarray
+        """
+
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet. Call fit-method first!")
+
+        return varprodmd_predict(
+            self._Atilde.modes, self._Atilde.eigenvalues, self._b, time
+        )
+
+    @property
+    def ssr(self) -> float:
+        """
+        Compute the square root of sum squared residual (SSR) taken from
+        https://link.springer.com/article/10.1007/s10589-012-9492-9.
+        The SSR gives insight w.r.t. signal qualities.
+        A low SSR is desired. If SSR is high the model may be inaccurate.
+
+        :raises ValueError: ValueError is raised if method
+            `fit(X, time)` was not called.
+        :return: SSR.
+        :rtype: float
+        """
+
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet!")
+
+        rho_flat_imag = _rvec2complex(self._optres.fun)
+
+        sigma = np.linalg.norm(rho_flat_imag)
+        denom = max(
+            self._original_time.size
+            - self._optres.jac.shape[0] // 2
+            - self._optres.jac.shape[1] // 2,
+            1,
+        )
+        ssr = sigma / np.sqrt(float(denom))
+
+        return ssr
+
+    @property
+    def opt_stats(self) -> OptimizeResult:
+        """
+        Return optimization statistics of the Variable Projection
+        optimization.
+
+        :raises ValueError: ValueError is raised if method `fit(X, time)`
+            was not called.
+        :return: Optimization results including optimal weights
+            (continuous eigenvalues) and number of iterations.
+        :rtype: OptimizeResult
+        """
+
+        if not self.fitted:
+            raise ValueError("Nothing fitted yet!")
+
+        return self._optres
+
+    @property
+    def dynamics(self):
+        """
+        Get the time evolution of each mode.
+
+        :return: matrix that contains all the time evolution, stored by row.
+        :rtype: numpy.ndarray
+        """
+
+        t_omega = np.exp(np.outer(self.eigs, self._original_time))
+        return self.amplitudes[:, None] * t_omega
+
+    @property
+    def frequency(self):
+        """
+        Get the amplitude spectrum.
+
+        :return: the array that contains the frequencies of the eigenvalues.
+        :rtype: numpy.ndarray
+        """
+
+        return self.eigs.imag / (2 * np.pi)
+
+    @property
+    def growth_rate(self):
+        """
+        Get the growth rate values relative to the modes.
+
+        :return: the Floquet values
+        :rtype: numpy.ndarray
+        """
+
+        return self.eigs.real
+
+    @property
+    def n_iter(self) -> int:
+        """
+        Access the number of iterations optimization terminated.
+
+        :return: number of iterations when optimization terminated.
+        :rtype: int
+        """
+        return self._niter
