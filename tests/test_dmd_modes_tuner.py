@@ -23,8 +23,13 @@ from pydmd.dmd_modes_tuner import (
     ModesTuner,
     select_modes,
     selectors,
+    sparsify_modes,
+    sr3_optimize_qp,
     stabilize_modes,
 )
+from pydmd.varprodmd import varprodmd_predict
+
+from .test_varprodmd import signal
 
 # 15 snapshot with 400 data. The matrix is 400x15 and it contains
 # the following data: f1 + f2 where
@@ -970,3 +975,20 @@ def test_modes_selector_all_dmd_types(dmd):
         "integral_contribution", n=3
     ).stabilize(1 - 1.0e-3)
     assert True
+
+
+def test_sparse_modes() -> None:
+    time = np.linspace(0, 4 * np.pi, 100)
+    x_loc = np.linspace(-10, 10, 1024)
+    z = signal(*np.meshgrid(x_loc, time)).T
+    dmd = DMD()
+    dmd.fit(z[:, :-1], z[:, 1:])
+    omegas = np.log(dmd.eigs) / (time[1] - time[0])
+
+    modes, amps = sparsify_modes(dmd.modes, omegas, dmd.amplitudes, time, z)
+    rec = varprodmd_predict(modes, omegas, amps, time)
+    errors = np.linalg.norm(z - rec, axis=0)
+    msk = (modes.real != 0) & (modes.imag != 0)
+    n_active = np.sum(msk)
+    assert n_active < np.prod(modes.shape)
+    assert errors.mean() < 0.5

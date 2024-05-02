@@ -3,10 +3,16 @@ A module which contains several functions to tune (i.e. improve) DMD instances
 through the "manual" modification of DMD modes.
 """
 
+from collections import namedtuple
 from copy import deepcopy
 from functools import partial
+from typing import NamedTuple
 
 import numpy as np
+import scipy as scp
+from osqp import OSQP
+
+BOUND = namedtuple("Bound", ["lower", "upper"])
 
 
 def select_modes(
@@ -75,6 +81,220 @@ def select_modes(
     if return_indexes:
         return dmd, cut_indexes
     return dmd
+
+
+def _cmat2real(X: np.ndarray) -> np.ndarray:
+    """Convert complex matrix to real matrix
+
+    :param X: Complex input matirx
+    :type X: np.ndarray
+    :return: Real matrix s.t. complex dot product
+             is represented by matrix of real numbers.
+    :rtype: np.ndarray
+    """
+    out = np.zeros((2 * X.shape[0], 2 * X.shape[1]))
+    out[: X.shape[0], : X.shape[1]] = X.real
+    out[X.shape[0] :, X.shape[1] :] = X.real
+    out[: X.shape[0], X.shape[1] :] = -X.imag
+    out[X.shape[0] :, : X.shape[1]] = X.imag
+    return out
+
+
+def _prox_l1(X: np.ndarray, alpha: float) -> np.ndarray:
+    return np.sign(X) * np.maximum(np.abs(X) - alpha, 0)
+
+
+def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
+    r"""Compute matrix A, which depends on cont. eigenvalues
+        and measurement times.
+
+    :param omega: Continuous complex eigenvalues
+                  :math:`\boldsymbol{\omega} \in \mathbb{C}^l`.
+    :type omega: np.ndarray
+    :param time: (Ordered) measurement time
+                 :math:`\boldsymbol{\t} \in \mathbb{R}^m`.
+    :type time: np.ndarray
+    :return: :math:`\boldsymbol{A} \in \mathbb{C}^{l \times m}`
+    :rtype: np.ndarray
+    """
+    return np.exp(np.outer(time, omega))
+
+
+def sr3_optimize_qp(
+    A: np.ndarray,
+    data: np.ndarray,
+    alpha: float,
+    beta: float,
+    max_iter: int = 10,
+    lb: np.ndarray = None,
+    ub: np.ndarray = None,
+) -> tuple[np.ndarray, int, float]:
+    r"""Perform Sparse Relaxed Regularization with soft-l1 prox operator
+       for complex valued data. The initial problem is reformulated s.t.
+       the OSQP finds an optimal solution.
+
+    :param A: Complex regressor matrix s.t. :math:`\hat{{boldsymbol{y}} = \boldsymbol{Ab}}`.
+              :math:`\boldsymbol{b}` is calculated using the OSQP solver.
+    :type A: np.ndarray
+    :param data: Data matrix.
+    :type data: np.ndarray
+    :param alpha: Regularization parameter to stabelize inversion of :math:`\boldsymbol{A}`
+    :type alpha: float
+    :param beta: Parameter for soft-l1 prox operator. Controls how agressive the values are driven to zero.
+    :type beta: float
+    :param max_iter: Maximum number of iterations, defaults to 10
+    :type max_iter: int, optional
+    :param lb: Lower bounds of :math:`\boldsymbol{b}`, defaults to None
+    :type lb: np.ndarray, optional
+    :param ub: Upper bounds of :math:`\boldsymbol{b}`, defaults to None
+    :type ub: np.ndarray, optional
+    :return: :math:`\boldsymbol{b}`
+    :rtype: tuple[np.ndarray, int, float]
+    """
+    y_flat = np.ravel(np.concatenate([data.real, data.imag], axis=0), "F")
+    a_hat = A.real.T @ A.real + A.imag.T @ A.imag
+    a_hat[np.diag_indices_from(a_hat)] += alpha
+    a_real_t = _cmat2real(A).T
+    q_init = -(
+        scp.sparse.kron(scp.sparse.eye(data.shape[1], format="csc"), a_real_t)
+        @ y_flat
+    )
+    n_blocks = q_init.shape[0] // a_hat.shape[0]
+    P = scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), a_hat)
+    A = None
+    lower = None
+    upper = None
+
+    if lb is not None or ub is not None:
+        A = scp.sparse.eye(q_init.shape[0], format="csc")
+        lower = lb
+        upper = ub
+
+    qp = OSQP()
+
+    qp.setup(P=P, q=q_init, A=A, l=lower, u=upper, verbose=False)
+
+    for _ in range(max_iter):
+        b_flat = qp.solve().x
+
+        # find sparse support with prox operator
+        u_flat = _prox_l1(b_flat, beta)
+        q = q_init - alpha * u_flat
+        qp.update(q=q)
+
+    return u_flat
+
+
+def sparsify_modes(
+    modes: np.ndarray,
+    omega: np.ndarray,
+    amps: np.ndarray,
+    time: np.ndarray,
+    data: np.ndarray,
+    alpha: float = 1e-9,
+    beta: float = 1e-6,
+    max_iter: int = 10,
+    bounds_real: NamedTuple(
+        "bounds", [("lower", float), ("upper", float)]
+    ) = None,
+    bounds_imag: NamedTuple(
+        "bounds", [("lower", float), ("upper", float)]
+    ) = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Calculate sparse DMD modes using cont. eigenvalues :math:`\boldsymbol{\omega}`
+        and measurment times :math:`\boldsymbol{t}`
+
+    :param modes: DMD modes.
+    :type modes: np.ndarray
+    :param omega: Cont. DMD eigenvalues.
+    :type omega: np.ndarray
+    :param amps: DMD amplitudes.
+    :type amps: np.ndarray
+    :param time: Measurement times. The measuemrents don't have to be sampled with fixed sample frequency.
+    :type time: np.ndarray
+    :param data: Snapshots for DMD
+    :type data: np.ndarray
+    :param alpha: Regularization parameter to stabelize optimization, defaults to 1e-9
+    :type alpha: float, optional
+    :param beta: Parameter that controls how agressive the modes are sparsefied, defaults to 1e-6
+    :type beta: float, optional
+    :param max_iter: Maximum number of iterations, defaults to 10
+    :type max_iter: int, optional
+    :param bounds_real: Lower- and upper bounds of the real part of the modes, defaults to None
+    :type bounds_real: NamedTuple, optional
+    :param bounds_imag: Lower- and upper bounds of the imaginary part of the modes, defaults to None
+    :type bounds_imag: NamedTuple, optional
+    :return: Sparse modes, and new amplitudes.
+    :rtype: tuple[np.ndarray, np.ndarray]
+    """
+    bounds_real_lower: np.ndarray = None
+    bounds_real_upper: np.ndarray = None
+    bounds_imag_lower: np.ndarray = None
+    bounds_imag_upper: np.ndarray = None
+    lb = None
+    ub = None
+
+    if bounds_real is not None:
+        if isinstance(bounds_real.lower, float):
+            bounds_real_lower = bounds_real.lower * np.ones_like(
+                modes, dtype=float
+            )
+
+        if isinstance(bounds_real.upper, float):
+            bounds_real_upper = bounds_real.upper * np.ones_like(
+                modes, dtype=float
+            )
+
+    if bounds_imag is not None:
+        if isinstance(bounds_imag.lower, float):
+            bounds_imag_lower = bounds_imag.lower * np.ones_like(
+                modes, dtype=float
+            )
+
+        if isinstance(bounds_imag.upper, float):
+            bounds_imag_upper = bounds_imag.upper * np.ones_like(
+                modes, dtype=float
+            )
+
+    if bounds_real_lower is None and bounds_real_upper is not None:
+        bounds_real_lower = -np.inf * np.ones_like(bounds_real_upper)
+    elif bounds_real_lower is not None and bounds_real_upper is None:
+        bounds_real_upper = np.inf * np.ones_like(bounds_real_lower)
+
+    if bounds_imag_lower is None and bounds_imag_upper is not None:
+        bounds_imag_lower = -np.inf * np.ones_like(bounds_imag_upper)
+    elif bounds_imag_lower is not None and bounds_imag_upper is None:
+        bounds_imag_upper = np.inf * np.ones_like(bounds_imag_lower)
+
+    # lower bounds active
+    if bounds_real_lower is not None:
+        lb = np.ravel(
+            np.concatenate([bounds_real_lower, bounds_imag_lower], axis=1).T,
+            "F",
+        )
+
+    # upper bpounds active
+    if bounds_real_upper is not None:
+        ub = np.ravel(
+            np.concatenate([bounds_real_upper, bounds_imag_upper], axis=1).T,
+            "F",
+        )
+
+    a_mat = _get_a_mat(omega, time)
+    b_mat = (modes * amps[None]).T
+    flat_modes_real = sr3_optimize_qp(
+        a_mat, data.T.astype(complex), alpha, beta, max_iter, lb, ub
+    )
+    modes_real_t = np.reshape(flat_modes_real, (2 * b_mat.shape[0], -1), "F")
+    modes_t = np.zeros(
+        (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=complex
+    )
+    modes_t.real = modes_real_t[: modes_real_t.shape[0] // 2, :]
+    modes_t.imag = modes_real_t[modes_real_t.shape[0] // 2 :, :]
+    sparse_modes = modes_t.T
+
+    new_amps = np.linalg.norm(modes, axis=0)
+    return sparse_modes / new_amps[None], new_amps
 
 
 def stabilize_modes(
