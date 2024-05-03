@@ -11,6 +11,7 @@ from typing import NamedTuple
 import numpy as np
 import scipy as scp
 from osqp import OSQP
+from .dmdbase import DMDBase
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
 
@@ -129,9 +130,10 @@ def sr3_optimize_qp(
     lb: np.ndarray = None,
     ub: np.ndarray = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    r"""Perform Sparse Relaxed Regularization with soft-l1 prox operator
+    r"""Perform Sparse Relaxed Regularization (SR3) with soft-l1 prox operator
        for complex valued data. The initial problem is reformulated s.t.
-       the OSQP finds an optimal solution.
+       the OSQP finds an optimal solution. The formulation closely follows the original
+       derivation of https://ieeexplore.ieee.org/document/8573778
 
     :param A: Complex regressor matrix s.t. :math:`\hat{{boldsymbol{y}} = \boldsymbol{Ab}}`.
               :math:`\boldsymbol{b}` is calculated using the OSQP solver.
@@ -151,9 +153,11 @@ def sr3_optimize_qp(
     :return: :math:`\boldsymbol{b}` and sparse support :math:`\boldsymbol{u}`.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
+    beta = abs(beta)
+    max_iter = abs(max_iter)
     y_flat = np.ravel(np.concatenate([data.real, data.imag], axis=0), "F")
     a_hat = A.real.T @ A.real + A.imag.T @ A.imag
-    a_hat[np.diag_indices_from(a_hat)] += alpha
+    a_hat[np.diag_indices_from(a_hat)] += abs(alpha)
     a_real_t = _cmat2real(A).T
     q_init = -(
         scp.sparse.kron(scp.sparse.eye(data.shape[1], format="csc"), a_real_t)
@@ -754,4 +758,50 @@ modes (either a string or a function)"""
 
         for dmd in self._dmds:
             stabilize_modes(dmd, inner_radius, outer_radius)
+        return self
+
+    def sparsify_modes(
+        self,
+        alpha: float = 1e-9,
+        beta: float = 1e-6,
+        max_iter: int = 10,
+        bounds_real: NamedTuple(
+            "Bound", [("lower", float), ("upper", float)]
+        ) = None,
+        bounds_imag: NamedTuple(
+            "Bound", [("lower", float), ("upper", float)]
+        ) = None,
+    ):
+        r"""Sparsify DMD modes subject to constraints.
+
+        :param alpha: Regularization for stabilizing inversion, defaults to 1e-9
+        :type alpha: float, optional
+        :param beta: Control how aggressive the modes are sparsified, defaults to 1e-6
+        :type beta: float, optional
+        :param max_iter: Maximum number of iterations, defaults to 10
+        :type max_iter: int, optional
+        :param bounds_real: Boundary conditions for the real part of the modes, defaults to None
+        :type bounds_real: NamedTuple, optional
+        :param bounds_imag: Boundary conditions for the imaginary part of the modes, defaults to None
+        :type bounds_imag: NamedTuple, optional
+        :return: This instance of `ModesTuner` in order to allow
+            chaining multiple operations.
+        :rtype: object
+        """
+        for dmd in self._dmds:
+            omegas = np.log(dmd.eigs) / dmd.original_time["dt"]
+            new_modes, new_amps = sparsify_modes(
+                dmd.modes,
+                omegas,
+                dmd.dmd_timesteps,
+                dmd.snapshots.astype(complex),
+                alpha,
+                beta,
+                max_iter,
+                bounds_real,
+                bounds_imag,
+            )
+            indices = np.arange(new_amps.shape[0])
+            dmd.modes[:, indices] = new_modes
+            dmd.amplitudes[indices] = new_amps
         return self

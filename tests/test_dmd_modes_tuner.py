@@ -2,7 +2,6 @@ from copy import deepcopy
 
 import numpy as np
 import pytest
-import scipy as scp
 from ezyrb import POD, RBF
 from pytest import param, raises
 
@@ -1111,3 +1110,41 @@ def test_sparse_modes() -> None:
     assert np.sum(xi.real > 0) == 0
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
+    assert (
+        0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
+    )
+
+    r_bound = BOUND(None, 0.0)
+    i_bound = BOUND(0.0, None)
+
+    modes, amps = sparsify_modes(
+        dmd.modes,
+        omegas,
+        time,
+        z,
+        max_iter=10,
+        bounds_imag=i_bound,
+        bounds_real=r_bound,
+    )
+
+    xi = modes * amps[None]
+    assert np.sum(xi.imag < 0) == 0
+    assert np.sum(xi.real > 0) == 0
+    assert np.sum(xi.real <= 0) > 0
+    assert np.sum(xi.imag >= 0) > 0
+    assert (
+        0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
+    )
+
+    tuner = ModesTuner(dmd)
+    refined_dmd = tuner.sparsify_modes(beta=1e-3).get()
+    msk = (refined_dmd.modes.real != 0) & (refined_dmd.modes.imag != 0)
+    assert np.sum(msk) < np.prod(refined_dmd.modes.shape)
+    assert (
+        np.sum((refined_dmd.modes.real == 0) & (refined_dmd.modes.imag == 0))
+        > 0
+    )
+    rec = varprodmd_predict(
+        refined_dmd.modes, omegas, refined_dmd.amplitudes, time
+    )
+    assert np.linalg.norm(z - rec, axis=0).mean() < 0.1
