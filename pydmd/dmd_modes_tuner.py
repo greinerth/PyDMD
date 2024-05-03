@@ -188,7 +188,6 @@ def sr3_optimize_qp(
 def sparsify_modes(
     modes: np.ndarray,
     omega: np.ndarray,
-    amps: np.ndarray,
     time: np.ndarray,
     data: np.ndarray,
     alpha: float = 1e-9,
@@ -256,15 +255,15 @@ def sparsify_modes(
                 modes, dtype=float
             )
 
-    if bounds_real_lower is None and bounds_real_upper is not None:
-        bounds_real_lower = -np.inf * np.ones_like(bounds_real_upper)
-    elif bounds_real_lower is not None and bounds_real_upper is None:
-        bounds_real_upper = np.inf * np.ones_like(bounds_real_lower)
+    if bounds_real_lower is not None and bounds_imag_lower is None:
+        bounds_imag_lower = -np.inf * np.ones_like(bounds_real_lower)
+    elif bounds_real_lower is None and bounds_imag_lower is not None:
+        bounds_real_lower = -np.inf * np.ones_like(bounds_imag_lower)
 
-    if bounds_imag_lower is None and bounds_imag_upper is not None:
-        bounds_imag_lower = -np.inf * np.ones_like(bounds_imag_upper)
-    elif bounds_imag_lower is not None and bounds_imag_upper is None:
-        bounds_imag_upper = np.inf * np.ones_like(bounds_imag_lower)
+    if bounds_real_upper is not None and bounds_imag_upper is None:
+        bounds_imag_upper = np.inf * np.ones_like(bounds_real_upper)
+    elif bounds_real_upper is None and bounds_imag_upper is not None:
+        bounds_real_upper = np.inf * np.ones_like(bounds_imag_upper)
 
     # lower bounds active
     if bounds_real_lower is not None:

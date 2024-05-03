@@ -1070,12 +1070,44 @@ def test_sparse_modes() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
 
-    modes, amps = sparsify_modes(
-        dmd.modes, omegas, dmd.amplitudes, time, z, max_iter=10
-    )
+    modes, amps = sparsify_modes(dmd.modes, omegas, time, z, max_iter=10)
     rec = varprodmd_predict(modes, omegas, amps, time)
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
     n_active = np.sum(msk)
     assert n_active < np.prod(modes.shape)
     assert errors.mean() < 0.2
+
+    # test bounds
+    r_bound = BOUND(-np.inf, 0.0)
+    i_bound = BOUND(0.0, np.inf)
+
+    modes, amps = sparsify_modes(
+        dmd.modes, omegas, time, z, max_iter=10, bounds_real=r_bound
+    )
+
+    xi = modes * amps[None]
+    assert np.sum(xi.real > 0) == 0
+
+    modes, amps = sparsify_modes(
+        dmd.modes, omegas, time, z, max_iter=10, bounds_imag=i_bound
+    )
+
+    xi = modes * amps[None]
+    assert np.sum(xi.imag < 0) == 0
+
+    modes, amps = sparsify_modes(
+        dmd.modes,
+        omegas,
+        time,
+        z,
+        max_iter=10,
+        bounds_imag=i_bound,
+        bounds_real=r_bound,
+    )
+
+    xi = modes * amps[None]
+    assert np.sum(xi.imag < 0) == 0
+    assert np.sum(xi.real > 0) == 0
+    assert np.sum(xi.real <= 0) > 0
+    assert np.sum(xi.imag >= 0) > 0
