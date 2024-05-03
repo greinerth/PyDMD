@@ -128,7 +128,7 @@ def sr3_optimize_qp(
     max_iter: int = 10,
     lb: np.ndarray = None,
     ub: np.ndarray = None,
-) -> tuple[np.ndarray, int, float]:
+) -> tuple[np.ndarray, np.ndarray]:
     r"""Perform Sparse Relaxed Regularization with soft-l1 prox operator
        for complex valued data. The initial problem is reformulated s.t.
        the OSQP finds an optimal solution.
@@ -148,8 +148,8 @@ def sr3_optimize_qp(
     :type lb: np.ndarray, optional
     :param ub: Upper bounds of :math:`\boldsymbol{b}`, defaults to None
     :type ub: np.ndarray, optional
-    :return: :math:`\boldsymbol{b}`
-    :rtype: tuple[np.ndarray, int, float]
+    :return: :math:`\boldsymbol{b}` and sparse support :math:`\boldsymbol{u}`.
+    :rtype: tuple[np.ndarray, np.ndarray]
     """
     y_flat = np.ravel(np.concatenate([data.real, data.imag], axis=0), "F")
     a_hat = A.real.T @ A.real + A.imag.T @ A.imag
@@ -182,7 +182,7 @@ def sr3_optimize_qp(
         q = q_init - alpha * u_flat
         qp.update(q=q)
 
-    return u_flat
+    return u_flat, b_flat
 
 
 def sparsify_modes(
@@ -281,11 +281,11 @@ def sparsify_modes(
         )
 
     a_mat = _get_a_mat(omega, time)
-    b_mat = (modes * amps[None]).T
+
     flat_modes_real = sr3_optimize_qp(
         a_mat, data.T.astype(complex), alpha, beta, max_iter, lb, ub
-    )
-    modes_real_t = np.reshape(flat_modes_real, (2 * b_mat.shape[0], -1), "F")
+    )[0]
+    modes_real_t = np.reshape(flat_modes_real, (2 * modes.shape[1], -1), "F")
     modes_t = np.zeros(
         (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=complex
     )

@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import numpy as np
 import pytest
+import scipy as scp
 from ezyrb import POD, RBF
 from pytest import param, raises
 
@@ -21,6 +22,7 @@ from pydmd import (
 from pydmd.dmd_modes_tuner import (
     ModesSelectors,
     ModesTuner,
+    _get_a_mat,
     select_modes,
     selectors,
     sparsify_modes,
@@ -977,7 +979,32 @@ def test_modes_selector_all_dmd_types(dmd):
     assert True
 
 
+def test_sr3_qp() -> None:
+    """Test QP"""
+    time = np.linspace(0, 4 * np.pi, 100)
+    x_loc = np.linspace(-10, 10, 1024)
+    z = signal(*np.meshgrid(x_loc, time)).T
+    dmd = DMD()
+    dmd.fit(z[:, :-1], z[:, 1:])
+    omegas = np.log(dmd.eigs) / (time[1] - time[0])
+    a_mat = _get_a_mat(omegas, time)
+    b_flat = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-6)[-1]
+    C_up = np.concatenate([a_mat.imag, a_mat.real], axis=1)
+    C_down = np.concatenate([-a_mat.real, a_mat.imag], axis=1)
+    C = np.concatenate([C_up, C_down], axis=0)
+    data_in = z.T
+    y = np.concatenate([data_in.real, data_in.imag], axis=0)
+    b_real = np.reshape(b_flat, (2 * dmd.modes.shape[1], -1), "F")
+
+    res = np.sum(
+        np.linalg.multi_dot([y.T, C, b_real]), axis=0
+    )
+    assert np.isclose(res.min(), 0)
+    assert np.isclose(res.max(), 0)
+
+
 def test_sparse_modes() -> None:
+    """Test sparse modes"""
     time = np.linspace(0, 4 * np.pi, 100)
     x_loc = np.linspace(-10, 10, 1024)
     z = signal(*np.meshgrid(x_loc, time)).T
