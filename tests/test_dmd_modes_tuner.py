@@ -1069,7 +1069,7 @@ def test_sparse_modes() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
 
-    modes, amps = sparsify_modes(dmd.modes, omegas, time, z, max_iter=10)
+    modes, amps, _ = sparsify_modes(omegas, time, z, max_iter=10)
     rec = varprodmd_predict(modes, omegas, amps, time)
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
@@ -1081,22 +1081,21 @@ def test_sparse_modes() -> None:
     r_bound = BOUND(-np.inf, 0.0)
     i_bound = BOUND(0.0, np.inf)
 
-    modes, amps = sparsify_modes(
-        dmd.modes, omegas, time, z, max_iter=10, bounds_real=r_bound
+    modes, amps, _ = sparsify_modes(
+        omegas, time, z, max_iter=10, bounds_real=r_bound
     )
 
     xi = modes * amps[None]
     assert np.sum(xi.real > 0) == 0
 
-    modes, amps = sparsify_modes(
-        dmd.modes, omegas, time, z, max_iter=10, bounds_imag=i_bound
+    modes, amps, _ = sparsify_modes(
+        omegas, time, z, max_iter=10, bounds_imag=i_bound
     )
 
     xi = modes * amps[None]
     assert np.sum(xi.imag < 0) == 0
 
-    modes, amps = sparsify_modes(
-        dmd.modes,
+    modes, _, amps = sparsify_modes(
         omegas,
         time,
         z,
@@ -1117,8 +1116,7 @@ def test_sparse_modes() -> None:
     r_bound = BOUND(None, 0.0)
     i_bound = BOUND(0.0, None)
 
-    modes, amps = sparsify_modes(
-        dmd.modes,
+    modes, _, amps = sparsify_modes(
         omegas,
         time,
         z,
@@ -1136,15 +1134,14 @@ def test_sparse_modes() -> None:
         0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
     )
 
+    dmd.dmd_time = {"t0": time[0], "tend": time[-1], "dt": time[1] - time[0]}
     tuner = ModesTuner(dmd)
-    refined_dmd = tuner.sparsify_modes(beta=1e-3).get()
-    msk = (refined_dmd.modes.real != 0) & (refined_dmd.modes.imag != 0)
-    assert np.sum(msk) < np.prod(refined_dmd.modes.shape)
-    assert (
-        np.sum((refined_dmd.modes.real == 0) & (refined_dmd.modes.imag == 0))
-        > 0
-    )
+    refined_dmd = tuner.sparsify_modes(beta=1e-6).get()
+    omegas = np.log(refined_dmd.eigs) / (refined_dmd.dmd_time["dt"])
     rec = varprodmd_predict(
-        refined_dmd.modes, omegas, refined_dmd.amplitudes, time
+        refined_dmd.modes,
+        omegas,
+        refined_dmd.amplitudes,
+        refined_dmd.dmd_timesteps,
     )
-    assert np.linalg.norm(z - rec, axis=0).mean() < 0.15
+    assert np.linalg.norm(z - rec, axis=0).mean() < 1e-3

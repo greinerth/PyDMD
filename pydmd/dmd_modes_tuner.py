@@ -11,6 +11,7 @@ from typing import NamedTuple
 import numpy as np
 import scipy as scp
 from osqp import OSQP
+
 from .dmdbase import DMDBase
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
@@ -187,7 +188,6 @@ def sr3_optimize_qp(
 
 
 def sparsify_modes(
-    modes: np.ndarray,
     omega: np.ndarray,
     time: np.ndarray,
     data: np.ndarray,
@@ -200,7 +200,7 @@ def sparsify_modes(
     bounds_imag: NamedTuple(
         "bounds", [("lower", float), ("upper", float)]
     ) = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Calculate sparse DMD modes using cont. eigenvalues :math:`\boldsymbol{\omega}`
         and measurment times :math:`\boldsymbol{t}`
 
@@ -236,24 +236,24 @@ def sparsify_modes(
 
     if bounds_real is not None:
         if isinstance(bounds_real.lower, float):
-            bounds_real_lower = bounds_real.lower * np.ones_like(
-                modes, dtype=float
+            bounds_real_lower = bounds_real.lower * np.ones(
+                (data.shape[0], omega.shape[0]), dtype=float
             )
 
         if isinstance(bounds_real.upper, float):
-            bounds_real_upper = bounds_real.upper * np.ones_like(
-                modes, dtype=float
+            bounds_real_upper = bounds_real.upper * np.ones(
+                (data.shape[0], omega.shape[0]), dtype=float
             )
 
     if bounds_imag is not None:
         if isinstance(bounds_imag.lower, float):
-            bounds_imag_lower = bounds_imag.lower * np.ones_like(
-                modes, dtype=float
+            bounds_imag_lower = bounds_imag.lower * np.ones(
+                (data.shape[0], omega.shape[0]), dtype=float
             )
 
         if isinstance(bounds_imag.upper, float):
-            bounds_imag_upper = bounds_imag.upper * np.ones_like(
-                modes, dtype=float
+            bounds_imag_upper = bounds_imag.upper * np.ones(
+                (data.shape[0], omega.shape[0]), dtype=float
             )
 
     if bounds_real_lower is not None and bounds_imag_lower is None:
@@ -285,7 +285,7 @@ def sparsify_modes(
     flat_modes_real = sr3_optimize_qp(
         a_mat, data.T.astype(complex), alpha, beta, max_iter, lb, ub
     )[0]
-    modes_real_t = np.reshape(flat_modes_real, (2 * modes.shape[1], -1), "F")
+    modes_real_t = np.reshape(flat_modes_real, (2 * omega.shape[0], -1), "F")
     modes_t = np.zeros(
         (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=complex
     )
@@ -293,8 +293,13 @@ def sparsify_modes(
     modes_t.imag = modes_real_t[modes_real_t.shape[0] // 2 :, :]
     sparse_modes = modes_t.T
 
-    new_amps = np.linalg.norm(modes, axis=0)
-    return sparse_modes / new_amps[None], new_amps
+    new_amps = np.linalg.norm(sparse_modes, axis=0)
+    ok_idx = np.where(new_amps > 0.0)[0]
+    return (
+        sparse_modes[:, ok_idx] / new_amps[None, ok_idx],
+        new_amps[ok_idx],
+        ok_idx,
+    )
 
 
 def stabilize_modes(
@@ -787,18 +792,22 @@ modes (either a string or a function)"""
         """
         for dmd in self._dmds:
             omegas = np.log(dmd.eigs) / dmd.original_time["dt"]
-            new_modes, new_amps = sparsify_modes(
-                dmd.modes,
+            data_in = np.concatenate(
+                [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
+            )
+            new_modes, new_amps, indices = sparsify_modes(
                 omegas,
                 dmd.dmd_timesteps,
-                dmd.snapshots.astype(complex),
+                data_in,
                 alpha,
                 beta,
                 max_iter,
                 bounds_real,
                 bounds_imag,
             )
-            indices = np.arange(new_amps.shape[0])
-            dmd.modes[:, indices] = new_modes
-            dmd.amplitudes[indices] = new_amps
+
+            # force new values
+            dmd.operator._modes = new_modes
+            dmd._b = new_amps
+            dmd._eigs = dmd.eigs[indices]
         return self

@@ -48,8 +48,7 @@ if __name__ == "__main__":
 
     bounds_real = BOUND(0.0, None)
     bounds_imag = BOUND(0.0, 0.0)
-    sparse_modes, amps = sparsify_modes(
-        dmd.modes,
+    sparse_modes, amps, _ = sparsify_modes(
         omegas,
         time,
         obs,
