@@ -8,6 +8,7 @@ import numpy as np
 from scipy.optimize import OptimizeResult, least_squares
 
 from .dmd import DMDBase
+from .dmd_modes_tuner import _cmat2real, _get_a_mat, sparsify_modes
 from .dmdoperator import DMDOperator
 from .snapshots import Snapshots
 from .utils import compute_svd
@@ -21,36 +22,6 @@ LBFGS_ARGS = MappingProxyType(
         "m": 10,
     }
 )
-
-
-def _soft_l1_prox(X_real: np.ndarray, alpha: float) -> np.ndarray:
-    """Compute soft l1 prox operator for sparse regression
-
-    :param X_real: array of real numbers
-    :type X_real: np.ndarray
-    :param alpha: prox parameter alpha (used for clamping the values)
-    :type alpha: float
-    :return: new "support" array for sparse regression
-    :rtype: np.ndarray
-    """
-    return np.sign(X_real) * np.maximum(np.abs(X_real) - alpha, 0.0)
-
-
-def _cmat2real(X: np.ndarray) -> np.ndarray:
-    """Convert complex matrix to real matrix
-
-    :param X: Complex input matirx
-    :type X: np.ndarray
-    :return: Real matrix s.t. complex dot product
-             is represented by matrix of real numbers.
-    :rtype: np.ndarray
-    """
-    out = np.zeros((2 * X.shape[0], 2 * X.shape[1]))
-    out[: X.shape[0], : X.shape[1]] = X.real
-    out[X.shape[0] :, X.shape[1] :] = X.real
-    out[: X.shape[0], X.shape[1] :] = -X.imag
-    out[X.shape[0] :, : X.shape[1]] = X.imag
-    return out
 
 
 def _rmat2complex(X: np.ndarray) -> np.ndarray:
@@ -181,22 +152,6 @@ def _smdmd_preprocessing(
     return eigvals
 
 
-def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
-    r"""Compute matrix A, which depends on cont. eigenvalues
-        and measurement times.
-
-    :param omega: Continuous complex eigenvalues
-                  :math:`\boldsymbol{\omega} \in \mathbb{C}^l`.
-    :type omega: np.ndarray
-    :param time: (Ordered) measurement time
-                 :math:`\boldsymbol{\t} \in \mathbb{R}^m`.
-    :type time: np.ndarray
-    :return: :math:`\boldsymbol{A} \in \mathbb{C}^{l \times m}`
-    :rtype: np.ndarray
-    """
-    return np.exp(np.outer(time, omega))
-
-
 def _omega_real_jac(
     omega: np.ndarray, time: np.ndarray, **kwargs
 ) -> np.ndarray:
@@ -296,39 +251,25 @@ def solve_sparse_mode_dmd(
     omegas = _smdmd_preprocessing(data, time, rank, use_proj)
     data_in = data.T
     prev_cost = float("inf")
-    phi = np.linalg.lstsq(_get_a_mat(omegas, time), data_in, rcond=None)[0]
-    u_mat = np.zeros_like(phi)
+    amps: np.ndarray = None
+    phi_in: np.ndarray = np.linalg.lstsq(
+        _get_a_mat(omegas, time), data_in, rcond=None
+    )[0]
 
     for i in range(max_iter):
 
         # optimize w.r.t omega
-        opt_res = _solve_sparse(data_in, omegas, phi, time, nls_args)
+        opt_res = _solve_sparse(data_in, omegas, phi_in, time, nls_args)
         omegas = _rvec2complex(opt_res.x)
 
-        # optimize w.r.t phi
-        a_mat = _get_a_mat(omegas, time)
-        ata_plus_kappa_eye = a_mat.conj().T @ a_mat
-        ata_plus_kappa_eye[np.diag_indices_from(ata_plus_kappa_eye)] += (
-            alpha + 0.0j
-        )
-
-        phi = np.linalg.solve(
-            ata_plus_kappa_eye, u_mat + a_mat.conj().T @ data_in
-        )
-
-        # perform soft l1 prox operator to generate new support
-        u_mat.real = _soft_l1_prox(phi.real, beta)
-        u_mat.imag = _soft_l1_prox(phi.imag, beta)
-
+        phi, amps, indices = sparsify_modes(omegas, time, data, alpha, beta, 1)
+        phi_in = (phi * amps[None]).T
+        omegas = omegas[indices]
         if abs(prev_cost - opt_res.cost) < thresh:
             break
 
         prev_cost = opt_res.cost
 
-    # use sparse support as modes
-    phi = u_mat.T
-    amps = np.linalg.norm(phi, 2, axis=0)
-    phi *= np.reciprocal(amps[None])
     return NLSOptResult(phi, omegas, amps, opt_res, i + 1)
 
 

@@ -261,7 +261,8 @@ def test_smdmd_class() -> None:
     diff = z - new_rec
     errors = np.sqrt(np.sum(np.abs(diff), axis=0))
     error = errors.mean()
-    assert error < 20.0
+
+    assert error < 20
 
     dmd = SmDMD(
         svd_rank=0,
