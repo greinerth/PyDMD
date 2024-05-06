@@ -101,4 +101,6 @@ if __name__ == "__main__":
 
     fig1.suptitle("Modes (Real)")
     fig2.suptitle("Modes (Imaginary)")
+    fig1.tight_layout()
+    fig2.tight_layout()
     plt.show()
