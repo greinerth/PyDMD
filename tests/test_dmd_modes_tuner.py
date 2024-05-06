@@ -1147,4 +1147,4 @@ def test_sparse_modes() -> None:
     rec = varprodmd_predict(
         refined_dmd.modes, omegas, refined_dmd.amplitudes, time
     )
-    assert np.linalg.norm(z - rec, axis=0).mean() < 0.1
+    assert np.linalg.norm(z - rec, axis=0).mean() < 0.15

@@ -155,14 +155,11 @@ def sr3_optimize_qp(
     """
     beta = abs(beta)
     max_iter = abs(max_iter)
-    y_flat = np.ravel(np.concatenate([data.real, data.imag], axis=0), "F")
     a_hat = A.real.T @ A.real + A.imag.T @ A.imag
     a_hat[np.diag_indices_from(a_hat)] += abs(alpha)
-    a_real_t = _cmat2real(A).T
-    q_init = -(
-        scp.sparse.kron(scp.sparse.eye(data.shape[1], format="csc"), a_real_t)
-        @ y_flat
-    )
+    q_init_mat = A.conj().T @ data
+    q_init_mat_real = np.concatenate([q_init_mat.real, q_init_mat.imag], axis=0)
+    q_init = -np.ravel(q_init_mat_real, "F")
     n_blocks = q_init.shape[0] // a_hat.shape[0]
     P = scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), a_hat)
     A = None
