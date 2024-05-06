@@ -95,11 +95,11 @@ if __name__ == "__main__":
         ax2[1, i].get_xaxis().set_ticks([])
         ax2[1, i].get_yaxis().set_ticks([])
 
-    ax1[0, 0].set_ylabel("Sparse Modes")
-    ax1[1, 0].set_ylabel("Dense Modes")
-    ax2[0, 0].set_ylabel("Sparse Modes")
-    ax2[1, 0].set_ylabel("Dense Modes")
+    ax1[0, 0].set_ylabel("Sparse")
+    ax1[1, 0].set_ylabel("Dense")
+    ax2[0, 0].set_ylabel("Sparse")
+    ax2[1, 0].set_ylabel("Dense")
 
-    fig1.suptitle("Real")
-    fig2.suptitle("Imaginary")
+    fig1.suptitle("Modes (Real)")
+    fig2.suptitle("Modes (Imaginary)")
     plt.show()
