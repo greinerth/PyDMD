@@ -12,7 +12,6 @@ import numpy as np
 import scipy as scp
 from osqp import OSQP
 
-from .dmdbase import DMDBase
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
 
@@ -810,4 +809,5 @@ modes (either a string or a function)"""
             dmd.operator._modes = new_modes
             dmd._b = new_amps
             dmd._eigs = dmd.eigs[indices]
+            dmd._allocate_modes_bitmask_proxy()
         return self

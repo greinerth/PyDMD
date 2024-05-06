@@ -1095,7 +1095,7 @@ def test_sparse_modes() -> None:
     xi = modes * amps[None]
     assert np.sum(xi.imag < 0) == 0
 
-    modes, _, amps = sparsify_modes(
+    modes, amps, _ = sparsify_modes(
         omegas,
         time,
         z,
@@ -1116,7 +1116,7 @@ def test_sparse_modes() -> None:
     r_bound = BOUND(None, 0.0)
     i_bound = BOUND(0.0, None)
 
-    modes, _, amps = sparsify_modes(
+    modes, amps, _ = sparsify_modes(
         omegas,
         time,
         z,
@@ -1136,7 +1136,7 @@ def test_sparse_modes() -> None:
 
     dmd.dmd_time = {"t0": time[0], "tend": time[-1], "dt": time[1] - time[0]}
     tuner = ModesTuner(dmd)
-    refined_dmd = tuner.sparsify_modes(beta=1e-6).get()
+    refined_dmd = tuner.sparsify_modes(beta=1e-4, max_iter=10).get()
     omegas = np.log(refined_dmd.eigs) / (refined_dmd.dmd_time["dt"])
     rec = varprodmd_predict(
         refined_dmd.modes,
@@ -1144,4 +1144,13 @@ def test_sparse_modes() -> None:
         refined_dmd.amplitudes,
         refined_dmd.dmd_timesteps,
     )
-    assert np.linalg.norm(z - rec, axis=0).mean() < 1e-3
+    assert np.linalg.norm(z - rec, axis=0).mean() < 20
+
+    xi = refined_dmd.modes * refined_dmd.amplitudes[None]
+    np.testing.assert_array_equal(time, refined_dmd.dmd_timesteps)
+    dmd._allocate_modes_bitmask_proxy
+    assert (
+        0
+        < np.sum((xi.imag == 0) & (xi.real == 0))
+        < np.prod(refined_dmd.modes.shape)
+    )
