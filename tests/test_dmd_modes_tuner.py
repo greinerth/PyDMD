@@ -1148,7 +1148,7 @@ def test_sparse_modes() -> None:
 
     xi = refined_dmd.modes * refined_dmd.amplitudes[None]
     np.testing.assert_array_equal(time, refined_dmd.dmd_timesteps)
-    dmd._allocate_modes_bitmask_proxy
+
     assert (
         0
         < np.sum((xi.imag == 0) & (xi.real == 0))
