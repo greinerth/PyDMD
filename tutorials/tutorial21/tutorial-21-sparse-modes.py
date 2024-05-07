@@ -33,29 +33,28 @@ if __name__ == "__main__":
                 frames_read += 1
 
     images = images[..., :frames_read]
-    obs = cv2.resize(
-        images,
-        (int(width), int(height)),
-        interpolation=cv2.INTER_CUBIC,
-    )
-    obs = obs.flatten().reshape((-1, frames_read))
+    images = images[..., ::-1]
+    obs = images.flatten().reshape((-1, frames_read))
 
     dmd = DMD()
     dmd.fit(obs[:, :-1], obs[:, 1:])
     omegas = np.log(dmd.eigs) * fps
-    sorted_idx = np.argsort(np.abs(omegas.imag))
+
     time = np.arange(obs.shape[-1]) * np.reciprocal(fps)
 
-    bounds_real = BOUND(0.0, None)
+    bounds_real = BOUND(0.0, 255.0)
     bounds_imag = BOUND(0.0, 0.0)
-    sparse_modes, amps, _ = sparsify_modes(
+    sparse_modes, amps, idx_ok = sparsify_modes(
         omegas,
         time,
         obs,
         beta=1e-6,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
+        max_iter=100
     )
+    omegas = omegas[idx_ok]
+    sorted_idx = np.argsort(np.abs(omegas.imag))
     sparse_modes = sparse_modes[:, sorted_idx]
     dense_modes = dmd.modes[:, sorted_idx]
     amps = amps[sorted_idx]
