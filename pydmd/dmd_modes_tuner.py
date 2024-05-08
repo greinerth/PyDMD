@@ -234,23 +234,23 @@ def sparsify_modes(
     ub = None
 
     if bounds_real is not None:
-        if isinstance(bounds_real.lower, float):
+        if isinstance(bounds_real.lower, (float, int)):
             bounds_real_lower = bounds_real.lower * np.ones(
                 (data.shape[0], omega.shape[0]), dtype=float
             )
 
-        if isinstance(bounds_real.upper, float):
+        if isinstance(bounds_real.upper, (float, int)):
             bounds_real_upper = bounds_real.upper * np.ones(
                 (data.shape[0], omega.shape[0]), dtype=float
             )
 
     if bounds_imag is not None:
-        if isinstance(bounds_imag.lower, float):
+        if isinstance(bounds_imag.lower, (float, int)):
             bounds_imag_lower = bounds_imag.lower * np.ones(
                 (data.shape[0], omega.shape[0]), dtype=float
             )
 
-        if isinstance(bounds_imag.upper, float):
+        if isinstance(bounds_imag.upper, (float, int)):
             bounds_imag_upper = bounds_imag.upper * np.ones(
                 (data.shape[0], omega.shape[0]), dtype=float
             )
@@ -789,12 +789,16 @@ modes (either a string or a function)"""
             chaining multiple operations.
         :rtype: object
         """
-        for dmd in self._dmds:
+        for i, dmd in enumerate(self._dmds):
             omegas = np.log(dmd.eigs) / dmd.original_time["dt"]
-            data_in = np.concatenate(
-                [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
+            data_in = (
+                np.concatenate(
+                    [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
+                )
+                if dmd.snapshots_y is not None
+                else dmd.snapshots
             )
-            new_modes, new_amps, indices = sparsify_modes(
+            new_modes, new_amps, ok_idx = sparsify_modes(
                 omegas,
                 dmd.dmd_timesteps,
                 data_in,
@@ -806,8 +810,11 @@ modes (either a string or a function)"""
             )
 
             # force new values
-            dmd.operator._modes = new_modes
-            dmd._b = new_amps
-            dmd._eigs = dmd.eigs[indices]
-            dmd._allocate_modes_bitmask_proxy()
+            dmd_copy = deepcopy(dmd)
+            dmd_copy.operator._modes = new_modes
+            dmd_copy.operator._eigenvalues = dmd.eigs[ok_idx]
+            dmd_copy._b = new_amps
+            dmd_copy._eigs = dmd.eigs[ok_idx]
+            dmd_copy._allocate_modes_bitmask_proxy()
+            self._dmds[i] = dmd_copy
         return self

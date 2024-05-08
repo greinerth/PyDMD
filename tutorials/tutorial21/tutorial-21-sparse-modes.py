@@ -9,7 +9,7 @@ from pydmd.dmd_modes_tuner import BOUND, sparsify_modes
 
 if __name__ == "__main__":
     DIR = os.path.abspath("")
-    DIR = os.path.join("video")
+    DIR = os.path.join(DIR, "video")
     READ_FRAMES = 16
 
     cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))

@@ -16,7 +16,7 @@ if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
 
     DIR = os.path.abspath("")
-    DIR = os.path.join("video")
+    DIR = os.path.join(DIR, "video")
     READ_FRAMES = 12
     AREA_SIZE_MIN = 5
     AREA_SIZE_MAX = 1000.0
