@@ -52,7 +52,7 @@ if __name__ == "__main__":
         alpha=1.0,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
-        max_iter=10
+        max_iter=10,
     )
     omegas = omegas[idx_ok]
     sorted_idx = np.argsort(np.abs(omegas.imag))
