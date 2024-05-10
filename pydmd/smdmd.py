@@ -8,7 +8,7 @@ import numpy as np
 from scipy.optimize import OptimizeResult, least_squares
 
 from .dmd import DMDBase
-from .dmd_modes_tuner import _cmat2real, _get_a_mat, sparsify_modes
+from .dmd_modes_tuner import _get_a_mat, sparsify_modes
 from .dmdoperator import DMDOperator
 from .snapshots import Snapshots
 from .utils import compute_svd

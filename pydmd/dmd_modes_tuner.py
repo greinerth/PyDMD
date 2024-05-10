@@ -87,6 +87,25 @@ def _prox_l1(X: np.ndarray, alpha: float) -> np.ndarray:
     return np.sign(X) * np.maximum(np.abs(X) - alpha, 0)
 
 
+def _prox_l1_complex(
+    X_real_imag: np.ndarray, X_abs: np.ndarray, alpha: float
+) -> np.ndarray:
+    """L1 prox operator for complex number taken from https://link.springer.com/book/10.1007/978-0-8176-4948-7 (p. 72)
+
+    :param X_real_imag: Real or imaginary part(s) of the complex number(s)
+    :type X_real_imag: np.ndarray
+    :param X_abs: Absolute value(s)
+    :type X_abs: np.ndarray
+    :param alpha: Threshold for prox operator
+    :type alpha: float
+    :return: Prox operator of real/imaginary parts
+    :rtype: np.ndarray
+    """
+
+    div = np.divide(X_real_imag, X_abs, where=X_abs > 0)
+    return div * np.maximum(X_abs - alpha, 0)
+
+
 def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
     r"""Compute matrix A, which depends on cont. eigenvalues
         and measurement times.
@@ -166,13 +185,22 @@ def sr3_optimize_qp(
     problem = Problem(
         P, q_init, lb=lb, ub=ub, A=A_constr, b=np.zeros(A_constr.shape[0])
     )
-
+    u_dense = None
     for _ in range(max_iter):
         b_flat = solve_problem(problem, "osqp").x
         b_dense = np.reshape(b_flat, (-1, Y.shape[-1]), "F")
 
         # find sparse support with prox operator
-        u_dense = _prox_l1(b_dense, beta)
+        b_dense_real = b_dense[: b_dense.shape[0] // 2]
+        b_dense_imag = b_dense[b_dense.shape[0] // 2, :]
+        b_abs = np.sqrt(np.square(b_dense_real) + np.square(b_dense_imag))
+        u_dense = np.concatenate(
+            [
+                _prox_l1_complex(b_dense_real, b_abs, beta),
+                _prox_l1_complex(b_dense_imag, b_abs, beta),
+            ],
+            axis=0,
+        )
 
         u_tilde_t = np.concatenate(
             [

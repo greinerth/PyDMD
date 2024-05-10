@@ -62,6 +62,7 @@ if __name__ == "__main__":
         time,
         obs,
         beta=1e-4,
+        alpha=1.0,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
         max_iter=5,

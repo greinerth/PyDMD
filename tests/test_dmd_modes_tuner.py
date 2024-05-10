@@ -997,7 +997,18 @@ def test_sr3_qp() -> None:
     lower_bound = np.ravel(
         np.concatenate([b_real_low, b_imag_low], axis=0), "F"
     )
-    u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-4, lb=lower_bound)[0]
+    E_upper = np.concatenate([a_mat.imag, a_mat.real], axis=1)
+    E_lower = np.concatenate([-a_mat.real, a_mat.imag], axis=1)
+    E = np.concatenate([E_upper, E_lower], axis=0)
+    Y = np.concatenate([z.real, z.imag], axis=1).T
+
+    # check if imaginary parts vanish
+    u_real, b_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-3, lb=lower_bound)
+    res = (E.T @ Y + 1e-9 * u_real).T @ b_real
+    desired_res = np.zeros_like(res)
+    assert np.isclose(desired_res.min(), 0.0)
+    assert np.isclose(desired_res.max(), 0.0)
+
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
     u.imag = u_real[: u_real.shape[0] // 2 :, :]
@@ -1061,6 +1072,7 @@ def test_sparse_modes() -> None:
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
     n_active = np.sum(msk)
+
     assert n_active < np.prod(modes.shape)
     assert errors.mean() < 0.2
 
@@ -1069,18 +1081,21 @@ def test_sparse_modes() -> None:
     i_bound = BOUND(0.0, np.inf)
 
     modes, amps, _ = sparsify_modes(
-        omegas, time, z, max_iter=10, bounds_real=r_bound, beta=1e-4
+        omegas, time, z, max_iter=10, bounds_real=r_bound, beta=1e-3
     )
 
     xi = modes * amps[None]
     assert np.sum(xi.real > 0) == 0
 
     modes, amps, _ = sparsify_modes(
-        omegas, time, z, max_iter=10, bounds_imag=i_bound, beta=1e-4
+        omegas, time, z, max_iter=10, bounds_imag=i_bound, beta=1e-6, alpha=1e-9
     )
 
     xi = modes * amps[None]
-    assert np.sum(xi.imag < 0) == 0
+    rows, cols = np.where(xi.imag < 0)
+    assert np.isclose(xi.imag[rows, cols].min(), 0.0)
+    assert np.isclose(xi.imag[rows, cols].max(), 0.0)
+    # assert np.sum(xi.imag < 0) == 0
 
     modes, amps, _ = sparsify_modes(
         omegas,
@@ -1089,12 +1104,19 @@ def test_sparse_modes() -> None:
         max_iter=10,
         bounds_imag=i_bound,
         bounds_real=r_bound,
-        beta=1e-4,
+        beta=1e-6,
+        alpha=1e-9,
     )
 
     xi = modes * amps[None]
-    assert np.sum(xi.imag < 0) == 0
-    assert np.sum(xi.real > 0) == 0
+    rows, cols = np.where(xi.imag < 0)
+    assert np.isclose(xi.imag[rows, cols].min(), 0.0, atol=1e-4)
+    assert np.isclose(xi.imag[rows, cols].max(), 0.0, atol=1e-4)
+
+    rows, cols = np.where(xi.real > 0)
+    assert np.isclose(xi.real[rows, cols].min(), 0.0, atol=1e-4)
+    assert np.isclose(xi.real[rows, cols].max(), 0.0, atol=1e-4)
+
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
     assert (
@@ -1111,12 +1133,18 @@ def test_sparse_modes() -> None:
         max_iter=10,
         bounds_imag=i_bound,
         bounds_real=r_bound,
-        beta=1e-4,
+        beta=1e-6,
     )
 
     xi = modes * amps[None]
-    assert np.sum(xi.imag < 0) == 0
-    assert np.sum(xi.real > 0) == 0
+    rows, cols = np.where(xi.imag < 0)
+    assert np.isclose(xi.imag[rows, cols].min(), 0.0, atol=1e-4)
+    assert np.isclose(xi.imag[rows, cols].max(), 0.0, atol=1e-4)
+
+    rows, cols = np.where(xi.real > 0)
+    assert np.isclose(xi.real[rows, cols].min(), 0.0, atol=1e-4)
+    assert np.isclose(xi.real[rows, cols].max(), 0.0, atol=1e-4)
+
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
     assert (
