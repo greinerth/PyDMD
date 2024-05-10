@@ -10,8 +10,7 @@ from typing import NamedTuple
 
 import numpy as np
 import scipy as scp
-from osqp import OSQP
-
+from qpsolvers import Problem, solve_problem
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
 
@@ -84,23 +83,6 @@ def select_modes(
     return dmd
 
 
-def _cmat2real(X: np.ndarray) -> np.ndarray:
-    """Convert complex matrix to real matrix
-
-    :param X: Complex input matirx
-    :type X: np.ndarray
-    :return: Real matrix s.t. complex dot product
-             is represented by matrix of real numbers.
-    :rtype: np.ndarray
-    """
-    out = np.zeros((2 * X.shape[0], 2 * X.shape[1]))
-    out[: X.shape[0], : X.shape[1]] = X.real
-    out[X.shape[0] :, X.shape[1] :] = X.real
-    out[: X.shape[0], X.shape[1] :] = -X.imag
-    out[X.shape[0] :, : X.shape[1]] = X.imag
-    return out
-
-
 def _prox_l1(X: np.ndarray, alpha: float) -> np.ndarray:
     return np.sign(X) * np.maximum(np.abs(X) - alpha, 0)
 
@@ -157,33 +139,58 @@ def sr3_optimize_qp(
     max_iter = abs(max_iter)
     a_hat = A.real.T @ A.real + A.imag.T @ A.imag
     a_hat[np.diag_indices_from(a_hat)] += abs(alpha)
-    q_init_mat = A.conj().T @ data
-    q_init_mat_real = np.concatenate([q_init_mat.real, q_init_mat.imag], axis=0)
-    q_init = -np.ravel(q_init_mat_real, "F")
-    n_blocks = q_init.shape[0] // a_hat.shape[0]
-    P = scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), a_hat)
-    A = None
-    lower = None
-    upper = None
+    a_tilde = A.real.T @ A.imag - A.imag.T @ A.real
 
-    if lb is not None or ub is not None:
-        A = scp.sparse.eye(q_init.shape[0], format="csc")
-        lower = lb
-        upper = ub
+    F_upper = np.concatenate([a_hat, -a_tilde], axis=1)
+    F_lower = np.concatenate([a_tilde, a_hat], axis=1)
+    D_upper = np.concatenate([A.real, -A.imag], axis=1)
+    D_lower = np.concatenate([A.imag, A.real], axis=1)
+    E_upper = np.concatenate([A.imag, -A.real], axis=1)
+    E_lower = np.concatenate([-A.real, A.imag], axis=1)
+    D = np.concatenate([D_upper, D_lower], axis=0)
+    E = np.concatenate([E_upper, E_lower], axis=0)
+    F = np.concatenate([F_upper, F_lower], axis=0)
+    Y = np.concatenate([data.real, data.imag], axis=0)
+    q_init = -np.ravel(D.T @ Y, "F")
+    n_blocks = q_init.shape[0] // F.shape[1]
+    P = scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), F)
+    A_constr_init_dense = Y.T @ E
+    A_constr = scp.sparse.block_diag(
+        [
+            A_constr_init_dense[i, None]
+            for i in range(A_constr_init_dense.shape[0])
+        ],
+        format="csc",
+    )
 
-    qp = OSQP()
-
-    qp.setup(P=P, q=q_init, A=A, l=lower, u=upper, verbose=False)
+    problem = Problem(
+        P, q_init, lb=lb, ub=ub, A=A_constr, b=np.zeros(A_constr.shape[0])
+    )
 
     for _ in range(max_iter):
-        b_flat = qp.solve().x
+        b_flat = solve_problem(problem, "osqp").x
+        b_dense = np.reshape(b_flat, (-1, Y.shape[-1]), "F")
 
         # find sparse support with prox operator
-        u_flat = _prox_l1(b_flat, beta)
-        q = q_init - alpha * u_flat
-        qp.update(q=q)
+        u_dense = _prox_l1(b_dense, beta)
 
-    return u_flat, b_flat
+        u_tilde_t = np.concatenate(
+            [
+                -u_dense[u_dense.shape[0] // 2 :],
+                u_dense[: u_dense.shape[0] // 2],
+            ]
+        ).T
+        A_constr_dense = A_constr_init_dense + alpha * u_tilde_t
+        A_constr = scp.sparse.block_diag(
+            [A_constr_dense[i, None] for i in range(A_constr_dense.shape[0])],
+            format="csc",
+        )
+        q = q_init - alpha * np.ravel(u_dense, "F")
+
+        problem.q = q
+        problem.A = A_constr
+
+    return u_dense, b_dense
 
 
 def sparsify_modes(
@@ -281,10 +288,10 @@ def sparsify_modes(
 
     a_mat = _get_a_mat(omega, time)
 
-    flat_modes_real = sr3_optimize_qp(
+    modes_real_t = sr3_optimize_qp(
         a_mat, data.T.astype(complex), alpha, beta, max_iter, lb, ub
     )[0]
-    modes_real_t = np.reshape(flat_modes_real, (2 * omega.shape[0], -1), "F")
+
     modes_t = np.zeros(
         (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=complex
     )

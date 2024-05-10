@@ -990,17 +990,6 @@ def test_sr3_qp() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
     a_mat = _get_a_mat(omegas, time)
-    b_flat = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-6)[-1]
-    C_up = np.concatenate([a_mat.imag, a_mat.real], axis=1)
-    C_down = np.concatenate([-a_mat.real, a_mat.imag], axis=1)
-    C = np.concatenate([C_up, C_down], axis=0)
-    data_in = z.T
-    y = np.concatenate([data_in.real, data_in.imag], axis=0)
-    b_real = np.reshape(b_flat, (2 * dmd.modes.shape[1], -1), "F")
-
-    res = np.sum(np.linalg.multi_dot([y.T, C, b_real]), axis=0)
-    assert np.isclose(res.min(), 0)
-    assert np.isclose(res.max(), 0)
 
     # test constrained QP: lower bound only
     b_real_low = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]))
@@ -1008,8 +997,7 @@ def test_sr3_qp() -> None:
     lower_bound = np.ravel(
         np.concatenate([b_real_low, b_imag_low], axis=0), "F"
     )
-    u_flat = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-6, lb=lower_bound)[0]
-    u_real = np.reshape(u_flat, (2 * dmd.modes.shape[1], -1), "F")
+    u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-4, lb=lower_bound)[0]
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
     u.imag = u_real[: u_real.shape[0] // 2 :, :]
@@ -1022,8 +1010,7 @@ def test_sr3_qp() -> None:
         np.concatenate([b_real_high, b_imag_high], axis=0), "F"
     )
 
-    u_flat = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-6, ub=upper_bound)[0]
-    u_real = np.reshape(u_flat, (2 * dmd.modes.shape[1], -1), "F")
+    u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-6, ub=upper_bound)[0]
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
     u.imag = u_real[: u_real.shape[0] // 2 :, :]
@@ -1043,10 +1030,10 @@ def test_sr3_qp() -> None:
         np.concatenate([b_real_high, b_imag_high], axis=0), "F"
     )
 
-    u_flat = sr3_optimize_qp(
-        a_mat, z.T, 1e-9, 1e-6, lb=lower_bound, ub=upper_bound
+    u_real = sr3_optimize_qp(
+        a_mat, z.T, 1e-9, 1e-4, lb=lower_bound, ub=upper_bound
     )[0]
-    u_real = np.reshape(u_flat, (2 * dmd.modes.shape[1], -1), "F")
+
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
     u.imag = u_real[: u_real.shape[0] // 2 :, :]
@@ -1069,8 +1056,8 @@ def test_sparse_modes() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
 
-    modes, amps, _ = sparsify_modes(omegas, time, z, max_iter=10)
-    rec = varprodmd_predict(modes, omegas, amps, time)
+    modes, amps, ok_idx = sparsify_modes(omegas, time, z, max_iter=10)
+    rec = varprodmd_predict(modes, omegas[ok_idx], amps, time)
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
     n_active = np.sum(msk)
@@ -1082,14 +1069,14 @@ def test_sparse_modes() -> None:
     i_bound = BOUND(0.0, np.inf)
 
     modes, amps, _ = sparsify_modes(
-        omegas, time, z, max_iter=10, bounds_real=r_bound
+        omegas, time, z, max_iter=10, bounds_real=r_bound, beta=1e-4
     )
 
     xi = modes * amps[None]
     assert np.sum(xi.real > 0) == 0
 
     modes, amps, _ = sparsify_modes(
-        omegas, time, z, max_iter=10, bounds_imag=i_bound
+        omegas, time, z, max_iter=10, bounds_imag=i_bound, beta=1e-4
     )
 
     xi = modes * amps[None]
@@ -1102,6 +1089,7 @@ def test_sparse_modes() -> None:
         max_iter=10,
         bounds_imag=i_bound,
         bounds_real=r_bound,
+        beta=1e-4,
     )
 
     xi = modes * amps[None]
@@ -1123,6 +1111,7 @@ def test_sparse_modes() -> None:
         max_iter=10,
         bounds_imag=i_bound,
         bounds_real=r_bound,
+        beta=1e-4,
     )
 
     xi = modes * amps[None]

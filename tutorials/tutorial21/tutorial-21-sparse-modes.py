@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     if not cap.isOpened():
         raise FileNotFoundError(
-            os.path.join(DIR, "cars.mp4") + " does not exist!"
+            os.path.join(DIR, "cars_lowres.mp4") + " does not exist!"
         )
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         beta=1e-6,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
-        max_iter=100
+        max_iter=2
     )
     omegas = omegas[idx_ok]
     sorted_idx = np.argsort(np.abs(omegas.imag))
