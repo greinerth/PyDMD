@@ -154,10 +154,11 @@ def sr3_optimize_qp(
     :return: :math:`\boldsymbol{b}` and sparse support :math:`\boldsymbol{u}`.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
+    alpha = abs(alpha)
     beta = abs(beta)
     max_iter = abs(max_iter)
     C = A.real.T @ A.real + A.imag.T @ A.imag
-    C[np.diag_indices_from(C)] += abs(alpha)
+    C[np.diag_indices_from(C)] += alpha
     D = A.imag.T @ A.real - A.real.T @ A.imag
 
     F_upper = np.concatenate([C, D], axis=1)
@@ -193,7 +194,7 @@ def sr3_optimize_qp(
     u_dense = None
 
     for _ in range(max_iter):
-        # b_flat = solve_problem(problem, "osqp").x
+
         b_flat = problem.solve().x
         b_dense = np.reshape(b_flat, (-1, Y.shape[-1]), "F")
 
@@ -209,7 +210,6 @@ def sr3_optimize_qp(
             axis=0,
         )
         problem.update(q=q_init - alpha * np.ravel(u_dense, "F"))
-        # problem.q = q_init - alpha * np.ravel(u_dense, "F")
 
     return u_dense, b_dense
 
