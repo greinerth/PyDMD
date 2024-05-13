@@ -998,7 +998,7 @@ def test_sr3_qp() -> None:
         np.concatenate([b_real_low, b_imag_low], axis=0), "F"
     )
 
-    u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-3, lb=lower_bound)[0]
+    u_real = sr3_optimize_qp(a_mat, z.T, 1.0, 1e-3, lb=lower_bound)[0]
 
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
@@ -1058,21 +1058,23 @@ def test_sparse_modes() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
 
-    modes, amps, ok_idx = sparsify_modes(omegas, time, z, max_iter=10, beta=1e-4)
+    modes, amps, ok_idx = sparsify_modes(
+        omegas, time, z, max_iter=10, beta=1e-4
+    )
     rec = varprodmd_predict(modes, omegas[ok_idx], amps, time)
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
     n_active = np.sum(msk)
 
     assert n_active < np.prod(modes.shape)
-    assert errors.mean() < 0.2
+    assert errors.mean() < 5e-3
 
     # test bounds
     r_bound = BOUND(-np.inf, 0.0)
     i_bound = BOUND(0.0, np.inf)
 
     modes, amps, _ = sparsify_modes(
-        omegas, time, z, max_iter=10, bounds_real=r_bound, beta=1e-3
+        omegas, time, z, max_iter=10, bounds_real=r_bound, alpha=1.0, beta=1e-3
     )
 
     xi = modes * amps[None]
@@ -1120,7 +1122,8 @@ def test_sparse_modes() -> None:
         max_iter=10,
         bounds_imag=i_bound,
         bounds_real=r_bound,
-        beta=1e-6,
+        alpha=1.0,
+        beta=1e-3,
     )
 
     xi = modes * amps[None]
@@ -1161,19 +1164,23 @@ def test_sparse_modes() -> None:
 @pytest.mark.skip(reason="Test not working as expected yet!")
 def test_synthetic_sparse_signal() -> None:
     modes_real = np.random.binomial(
-        1.0, 0.5, size=(256, 32)
-    ) * np.random.normal(size=(256, 32))
+        1.0, 0.5, size=(1024, 8)
+    ) * np.random.normal(size=(1024, 8))
     modes_imag = np.random.binomial(
-        1.0, 0.5, size=(256, 32)
-    ) * np.random.normal(size=(256, 32))
-    omegas_real = np.random.normal(size=(32,))
-    omegas_imag = np.random.normal(size=(32,))
+        1.0, 0.5, size=(1024, 8)
+    ) * np.random.normal(size=(1024, 8))
 
-    modes = np.zeros((256, 32), dtype=complex)
+    br = BOUND(modes_real.min(), modes_real.max())
+    bi = BOUND(modes_imag.min(), modes_imag.max())
+
+    omegas_real = np.random.normal(size=(8,))
+    omegas_imag = np.random.normal(size=(8,))
+
+    modes = np.zeros((1024, 8), dtype=complex)
     modes.real = modes_real
     modes.imag = modes_imag
 
-    omegas = np.zeros((32,), dtype=complex)
+    omegas = np.zeros((8,), dtype=complex)
     omegas.real = omegas_real
     omegas.imag = omegas_imag
 
@@ -1184,8 +1191,15 @@ def test_synthetic_sparse_signal() -> None:
 
     signal = varprodmd_predict(modes, omegas, amps, time)
     new_modes, new_amps, ok_idx = sparsify_modes(
-        omegas, time, signal, alpha=0.0005, beta=0.5, max_iter=10
+        omegas,
+        time,
+        signal,
+        alpha=10.0,
+        beta=0.1,
+        max_iter=100,
+        bounds_real=br,
+        bounds_imag=bi,
     )
 
-    # np.testing.assert_allclose(new_modes.real, modes.real)
+    np.testing.assert_allclose(new_modes.real, modes.real)
     np.testing.assert_allclose(new_modes.imag, modes.imag)

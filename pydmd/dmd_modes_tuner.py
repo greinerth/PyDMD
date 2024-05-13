@@ -101,9 +101,12 @@ def _prox_l1_complex(
     :return: Prox operator of real/imaginary parts
     :rtype: np.ndarray
     """
-
-    div = np.divide(X_real_imag, X_abs, where=X_abs > 0)
-    return div * np.maximum(X_abs - alpha, 0)
+    out = np.zeros_like(X_real_imag)
+    # print(out.shape)
+    msk = X_abs >= alpha
+    # print(msk.shape, X_abs.shape, out.shape)
+    out[msk] = (X_real_imag[msk] / X_abs[msk]) * (X_abs[msk] - alpha)
+    return out
 
 
 def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
@@ -191,6 +194,8 @@ def sr3_optimize_qp(
         ),
         verbose=False,
     )
+
+    b_dense = None
     u_dense = None
 
     for _ in range(max_iter):
@@ -200,7 +205,8 @@ def sr3_optimize_qp(
 
         # find sparse support with prox operator
         b_dense_real = b_dense[: b_dense.shape[0] // 2]
-        b_dense_imag = b_dense[b_dense.shape[0] // 2, :]
+        b_dense_imag = b_dense[b_dense.shape[0] // 2 :]
+
         b_abs = np.sqrt(np.square(b_dense_real) + np.square(b_dense_imag))
         u_dense = np.concatenate(
             [
@@ -218,7 +224,7 @@ def sparsify_modes(
     omega: np.ndarray,
     time: np.ndarray,
     data: np.ndarray,
-    alpha: float = 1e-9,
+    alpha: float = 1.0,
     beta: float = 1e-6,
     max_iter: int = 10,
     bounds_real: NamedTuple(
@@ -791,7 +797,7 @@ modes (either a string or a function)"""
 
     def sparsify_modes(
         self,
-        alpha: float = 1e-9,
+        alpha: float = 1.0,
         beta: float = 1e-6,
         max_iter: int = 10,
         bounds_real: NamedTuple(
