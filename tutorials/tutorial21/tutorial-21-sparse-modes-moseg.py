@@ -62,10 +62,10 @@ if __name__ == "__main__":
         time,
         obs,
         alpha=1.0,
-        beta=1e-4,
+        beta=1e-6,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
-        max_iter=5,
+        max_iter=10,
     )
     dt = timeit.default_timer() - t0
 

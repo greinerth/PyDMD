@@ -23,6 +23,11 @@ LBFGS_ARGS = MappingProxyType(
     }
 )
 
+def _cmat2real(X: np.ndarray) -> np.ndarray:
+    upper = np.concatenate([X.real, -X.imag], axis=1)
+    lower= np.concatenate([X.imag, X.real], axis=1)
+    return np.concatenate([upper, lower], axis=0)
+
 
 def _rmat2complex(X: np.ndarray) -> np.ndarray:
     """Convert real matrix to complex matrix
