@@ -997,17 +997,8 @@ def test_sr3_qp() -> None:
     lower_bound = np.ravel(
         np.concatenate([b_real_low, b_imag_low], axis=0), "F"
     )
-    E_upper = np.concatenate([a_mat.imag, a_mat.real], axis=1)
-    E_lower = np.concatenate([-a_mat.real, a_mat.imag], axis=1)
-    E = np.concatenate([E_upper, E_lower], axis=0)
-    Y = np.concatenate([z.real, z.imag], axis=1).T
 
-    # check if imaginary parts vanish
-    u_real, b_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-3, lb=lower_bound)
-    res = (E.T @ Y + 1e-9 * u_real).T @ b_real
-    desired_res = np.zeros_like(res)
-    assert np.isclose(desired_res.min(), 0.0)
-    assert np.isclose(desired_res.max(), 0.0)
+    u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-3, lb=lower_bound)[0]
 
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
@@ -1067,7 +1058,7 @@ def test_sparse_modes() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
 
-    modes, amps, ok_idx = sparsify_modes(omegas, time, z, max_iter=10)
+    modes, amps, ok_idx = sparsify_modes(omegas, time, z, max_iter=10, beta=1e-4)
     rec = varprodmd_predict(modes, omegas[ok_idx], amps, time)
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
@@ -1093,9 +1084,7 @@ def test_sparse_modes() -> None:
 
     xi = modes * amps[None]
     rows, cols = np.where(xi.imag < 0)
-    assert np.isclose(xi.imag[rows, cols].min(), 0.0)
-    assert np.isclose(xi.imag[rows, cols].max(), 0.0)
-    # assert np.sum(xi.imag < 0) == 0
+    assert np.sum(xi.imag < 0) == 0
 
     modes, amps, _ = sparsify_modes(
         omegas,
@@ -1104,7 +1093,7 @@ def test_sparse_modes() -> None:
         max_iter=10,
         bounds_imag=i_bound,
         bounds_real=r_bound,
-        beta=1e-6,
+        beta=1e-4,
         alpha=1e-9,
     )
 
@@ -1113,9 +1102,7 @@ def test_sparse_modes() -> None:
     assert np.isclose(xi.imag[rows, cols].min(), 0.0, atol=1e-4)
     assert np.isclose(xi.imag[rows, cols].max(), 0.0, atol=1e-4)
 
-    rows, cols = np.where(xi.real > 0)
-    assert np.isclose(xi.real[rows, cols].min(), 0.0, atol=1e-4)
-    assert np.isclose(xi.real[rows, cols].max(), 0.0, atol=1e-4)
+    assert np.sum(xi.real > 0) == 0
 
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
@@ -1141,9 +1128,7 @@ def test_sparse_modes() -> None:
     assert np.isclose(xi.imag[rows, cols].min(), 0.0, atol=1e-4)
     assert np.isclose(xi.imag[rows, cols].max(), 0.0, atol=1e-4)
 
-    rows, cols = np.where(xi.real > 0)
-    assert np.isclose(xi.real[rows, cols].min(), 0.0, atol=1e-4)
-    assert np.isclose(xi.real[rows, cols].max(), 0.0, atol=1e-4)
+    assert np.sum(xi.real > 0) == 0
 
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
@@ -1171,3 +1156,36 @@ def test_sparse_modes() -> None:
         < np.sum((xi.imag == 0) & (xi.real == 0))
         < np.prod(refined_dmd.modes.shape)
     )
+
+
+@pytest.mark.skip(reason="Test not working as expected yet!")
+def test_synthetic_sparse_signal() -> None:
+    modes_real = np.random.binomial(
+        1.0, 0.5, size=(256, 32)
+    ) * np.random.normal(size=(256, 32))
+    modes_imag = np.random.binomial(
+        1.0, 0.5, size=(256, 32)
+    ) * np.random.normal(size=(256, 32))
+    omegas_real = np.random.normal(size=(32,))
+    omegas_imag = np.random.normal(size=(32,))
+
+    modes = np.zeros((256, 32), dtype=complex)
+    modes.real = modes_real
+    modes.imag = modes_imag
+
+    omegas = np.zeros((32,), dtype=complex)
+    omegas.real = omegas_real
+    omegas.imag = omegas_imag
+
+    amps = np.linalg.norm(modes, axis=0)
+    modes /= amps[None]
+
+    time = np.linspace(0.0, 1.0, 256)
+
+    signal = varprodmd_predict(modes, omegas, amps, time)
+    new_modes, new_amps, ok_idx = sparsify_modes(
+        omegas, time, signal, alpha=0.0005, beta=0.5, max_iter=10
+    )
+
+    # np.testing.assert_allclose(new_modes.real, modes.real)
+    np.testing.assert_allclose(new_modes.imag, modes.imag)

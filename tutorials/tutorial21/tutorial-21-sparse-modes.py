@@ -48,7 +48,7 @@ if __name__ == "__main__":
         omegas,
         time,
         obs,
-        beta=1e-6,
+        beta=1e-4,
         alpha=1.0,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,

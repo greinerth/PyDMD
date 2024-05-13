@@ -10,7 +10,7 @@ from typing import NamedTuple
 
 import numpy as np
 import scipy as scp
-from qpsolvers import Problem, solve_problem
+from osqp import OSQP
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
 
@@ -156,38 +156,45 @@ def sr3_optimize_qp(
     """
     beta = abs(beta)
     max_iter = abs(max_iter)
-    a_hat = A.real.T @ A.real + A.imag.T @ A.imag
-    a_hat[np.diag_indices_from(a_hat)] += abs(alpha)
-    a_tilde = A.real.T @ A.imag - A.imag.T @ A.real
+    C = A.real.T @ A.real + A.imag.T @ A.imag
+    C[np.diag_indices_from(C)] += abs(alpha)
+    D = A.imag.T @ A.real - A.real.T @ A.imag
 
-    F_upper = np.concatenate([a_hat, -a_tilde], axis=1)
-    F_lower = np.concatenate([a_tilde, a_hat], axis=1)
-    D_upper = np.concatenate([A.real, -A.imag], axis=1)
-    D_lower = np.concatenate([A.imag, A.real], axis=1)
-    E_upper = np.concatenate([A.imag, -A.real], axis=1)
-    E_lower = np.concatenate([-A.real, A.imag], axis=1)
-    D = np.concatenate([D_upper, D_lower], axis=0)
-    E = np.concatenate([E_upper, E_lower], axis=0)
-    F = np.concatenate([F_upper, F_lower], axis=0)
+    F_upper = np.concatenate([C, D], axis=1)
+    F_lower = np.concatenate([-D, C], axis=1)
+    F_kappa = np.concatenate([F_upper, F_lower], axis=0)
+
+    A_hat_upper = np.concatenate([A.real, -A.imag], axis=1)
+    A_hat_lower = np.concatenate([A.imag, A.real], axis=1)
+    A_hat = np.concatenate([A_hat_upper, A_hat_lower], axis=0)
+
     Y = np.concatenate([data.real, data.imag], axis=0)
-    q_init = -np.ravel(D.T @ Y, "F")
-    n_blocks = q_init.shape[0] // F.shape[1]
-    P = scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), F)
-    A_constr_init_dense = Y.T @ E
-    A_constr = scp.sparse.block_diag(
-        [
-            A_constr_init_dense[i, None]
-            for i in range(A_constr_init_dense.shape[0])
-        ],
+    q_init = -np.ravel(A_hat.T @ Y, "F")
+    n_blocks = q_init.shape[0] // F_kappa.shape[1]
+    P = scp.sparse.triu(
+        scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), F_kappa),
         format="csc",
     )
 
-    problem = Problem(
-        P, q_init, lb=lb, ub=ub, A=A_constr, b=np.zeros(A_constr.shape[0])
+    # problem = Problem(P, q_init, lb=lb, ub=ub)
+    problem = OSQP()
+    problem.setup(
+        P,
+        q_init,
+        l=lb,
+        u=ub,
+        A=(
+            scp.sparse.eye(q_init.shape[0], format="csc")
+            if (ub is not None or lb is not None)
+            else None
+        ),
+        verbose=False,
     )
     u_dense = None
+
     for _ in range(max_iter):
-        b_flat = solve_problem(problem, "osqp").x
+        # b_flat = solve_problem(problem, "osqp").x
+        b_flat = problem.solve().x
         b_dense = np.reshape(b_flat, (-1, Y.shape[-1]), "F")
 
         # find sparse support with prox operator
@@ -201,22 +208,8 @@ def sr3_optimize_qp(
             ],
             axis=0,
         )
-
-        u_tilde_t = np.concatenate(
-            [
-                -u_dense[u_dense.shape[0] // 2 :],
-                u_dense[: u_dense.shape[0] // 2],
-            ]
-        ).T
-        A_constr_dense = A_constr_init_dense + alpha * u_tilde_t
-        A_constr = scp.sparse.block_diag(
-            [A_constr_dense[i, None] for i in range(A_constr_dense.shape[0])],
-            format="csc",
-        )
-        q = q_init - alpha * np.ravel(u_dense, "F")
-
-        problem.q = q
-        problem.A = A_constr
+        problem.update(q=q_init - alpha * np.ravel(u_dense, "F"))
+        # problem.q = q_init - alpha * np.ravel(u_dense, "F")
 
     return u_dense, b_dense
 
