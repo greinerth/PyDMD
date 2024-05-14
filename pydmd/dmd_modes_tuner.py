@@ -6,13 +6,22 @@ through the "manual" modification of DMD modes.
 from collections import namedtuple
 from copy import deepcopy
 from functools import partial
-from typing import NamedTuple
+from types import MappingProxyType
+from typing import Any, Dict, NamedTuple
 
 import numpy as np
 import scipy as scp
 from osqp import OSQP
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
+OSQP_SETTINGS = MappingProxyType(
+    {
+        "max_iter": int(1e6),
+        "linsys_solver": "qldl",
+        "eps_abs": 1e-6,
+        "verbose": False,
+    }
+)
 
 
 def select_modes(
@@ -133,6 +142,7 @@ def sr3_optimize_qp(
     max_iter: int = 10,
     lb: np.ndarray = None,
     ub: np.ndarray = None,
+    osqp_settings: Dict[str, Any] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""Perform Sparse Relaxed Regularization (SR3) with soft-l1 prox operator
        for complex valued data. The initial problem is reformulated s.t.
@@ -154,9 +164,14 @@ def sr3_optimize_qp(
     :type lb: np.ndarray, optional
     :param ub: Upper bounds of :math:`\boldsymbol{b}`, defaults to None
     :type ub: np.ndarray, optional
+    :param osqp_settings: OSQP solver settings
+    :type osqp_settings: Dict[str, Any], optional
     :return: :math:`\boldsymbol{b}` and sparse support :math:`\boldsymbol{u}`.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
+    if osqp_settings is None:
+        osqp_settings = OSQP_SETTINGS
+
     alpha = abs(alpha)
     beta = abs(beta)
     max_iter = abs(max_iter)
@@ -192,7 +207,7 @@ def sr3_optimize_qp(
             if (ub is not None or lb is not None)
             else None
         ),
-        verbose=False,
+        **osqp_settings
     )
 
     b_dense = None
@@ -233,6 +248,7 @@ def sparsify_modes(
     bounds_imag: NamedTuple(
         "bounds", [("lower", float), ("upper", float)]
     ) = None,
+    osqp_settings: Dict[str, Any] = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Calculate sparse DMD modes using cont. eigenvalues :math:`\boldsymbol{\omega}`
         and measurment times :math:`\boldsymbol{t}`
@@ -257,6 +273,8 @@ def sparsify_modes(
     :type bounds_real: NamedTuple, optional
     :param bounds_imag: Lower- and upper bounds of the imaginary part of the modes, defaults to None
     :type bounds_imag: NamedTuple, optional
+    :param osqp_settings: OSQP solver settings
+    :type osqp_settings: Dict[str, Any], optional
     :return: Sparse modes, and new amplitudes.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
@@ -316,7 +334,14 @@ def sparsify_modes(
     a_mat = _get_a_mat(omega, time)
 
     modes_real_t = sr3_optimize_qp(
-        a_mat, data.T.astype(complex), alpha, beta, max_iter, lb, ub
+        a_mat,
+        data.T.astype(complex),
+        alpha,
+        beta,
+        max_iter,
+        lb,
+        ub,
+        osqp_settings,
     )[0]
 
     modes_t = np.zeros(
@@ -806,6 +831,7 @@ modes (either a string or a function)"""
         bounds_imag: NamedTuple(
             "Bound", [("lower", float), ("upper", float)]
         ) = None,
+        osqp_settings: Dict[str, Any] = None,
     ):
         r"""Sparsify DMD modes subject to constraints.
 
@@ -819,6 +845,8 @@ modes (either a string or a function)"""
         :type bounds_real: NamedTuple, optional
         :param bounds_imag: Boundary conditions for the imaginary part of the modes, defaults to None
         :type bounds_imag: NamedTuple, optional
+        :param osqp_settings: OSQP solver settings
+        :type osqp_settings: Dict[str, Any], optional
         :return: This instance of `ModesTuner` in order to allow
             chaining multiple operations.
         :rtype: object
@@ -841,6 +869,7 @@ modes (either a string or a function)"""
                 max_iter,
                 bounds_real,
                 bounds_imag,
+                osqp_settings,
             )
 
             # force new values
