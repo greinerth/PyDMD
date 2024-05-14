@@ -1164,42 +1164,43 @@ def test_sparse_modes() -> None:
 @pytest.mark.skip(reason="Test not working as expected yet!")
 def test_synthetic_sparse_signal() -> None:
     modes_real = np.random.binomial(
-        1.0, 0.5, size=(1024, 8)
-    ) * np.random.normal(size=(1024, 8))
+        1.0, 0.5, size=(1024, 4)
+    ) * np.random.normal(size=(1024, 4))
     modes_imag = np.random.binomial(
-        1.0, 0.5, size=(1024, 8)
-    ) * np.random.normal(size=(1024, 8))
+        1.0, 0.5, size=(1024, 4)
+    ) * np.random.normal(size=(1024, 4))
 
     br = BOUND(modes_real.min(), modes_real.max())
     bi = BOUND(modes_imag.min(), modes_imag.max())
 
-    omegas_real = np.random.normal(size=(8,))
-    omegas_imag = np.random.normal(size=(8,))
+    omegas_real = np.random.normal(size=(4,))
+    omegas_imag = np.random.normal(size=(4,))
 
-    modes = np.zeros((1024, 8), dtype=complex)
+    modes = np.zeros((1024, 4), dtype=complex)
     modes.real = modes_real
     modes.imag = modes_imag
 
-    omegas = np.zeros((8,), dtype=complex)
+    omegas = np.zeros((4,), dtype=complex)
     omegas.real = omegas_real
     omegas.imag = omegas_imag
 
     amps = np.linalg.norm(modes, axis=0)
     modes /= amps[None]
 
-    time = np.linspace(0.0, 1.0, 256)
+    time = np.linspace(0.0, 10.0, 1024)
 
     signal = varprodmd_predict(modes, omegas, amps, time)
     new_modes, new_amps, ok_idx = sparsify_modes(
         omegas,
         time,
         signal,
-        alpha=10.0,
-        beta=0.1,
-        max_iter=100,
+        alpha=100.0,
+        beta=1.0,
+        max_iter=250,
         bounds_real=br,
         bounds_imag=bi,
+        prox_operator="prox_l1",
     )
-
+    print(np.isclose(new_modes.real, modes.real))
     np.testing.assert_allclose(new_modes.real, modes.real)
     np.testing.assert_allclose(new_modes.imag, modes.imag)

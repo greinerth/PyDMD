@@ -18,7 +18,7 @@ OSQP_SETTINGS = MappingProxyType(
     {
         "max_iter": int(1e6),
         "linsys_solver": "qldl",
-        "eps_abs": 1e-6,
+        "eps_abs": 1e-12,
         "verbose": False,
     }
 )
@@ -118,6 +118,15 @@ def _prox_l1_complex(
     return out
 
 
+def _hard_threshold(
+    X_real_imag: np.ndarray, X_abs: np.ndarray, alpha: float
+) -> np.ndarray:
+    out = np.zeros_like(X_real_imag)
+    msk = X_abs >= alpha
+    out[msk] = X_real_imag[msk]
+    return out
+
+
 def _get_a_mat(omega: np.ndarray, time: np.ndarray) -> np.ndarray:
     r"""Compute matrix A, which depends on cont. eigenvalues
         and measurement times.
@@ -143,6 +152,7 @@ def sr3_optimize_qp(
     lb: np.ndarray = None,
     ub: np.ndarray = None,
     osqp_settings: Dict[str, Any] = None,
+    prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""Perform Sparse Relaxed Regularization (SR3) with soft-l1 prox operator
        for complex valued data. The initial problem is reformulated s.t.
@@ -166,11 +176,19 @@ def sr3_optimize_qp(
     :type ub: np.ndarray, optional
     :param osqp_settings: OSQP solver settings
     :type osqp_settings: Dict[str, Any], optional
+    :param prox_operator: Proximal operator for sparsifying the parameters.
+                          Supported operator: ["prox_l1", "hard_threshold"]. Defaults to "prox_l1"
+    :type prox_operator: str, optional
     :return: :math:`\boldsymbol{b}` and sparse support :math:`\boldsymbol{u}`.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
     if osqp_settings is None:
         osqp_settings = OSQP_SETTINGS
+
+    operators = {"prox_l1": _prox_l1_complex, "hard_threshold": _hard_threshold}
+
+    if prox_operator not in operators:
+        raise ValueError(f"{prox_operator} not supported!")
 
     alpha = abs(alpha)
     beta = abs(beta)
@@ -207,7 +225,7 @@ def sr3_optimize_qp(
             if (ub is not None or lb is not None)
             else None
         ),
-        **osqp_settings
+        **osqp_settings,
     )
 
     b_dense = None
@@ -225,8 +243,8 @@ def sr3_optimize_qp(
         b_abs = np.sqrt(np.square(b_dense_real) + np.square(b_dense_imag))
         u_dense = np.concatenate(
             [
-                _prox_l1_complex(b_dense_real, b_abs, beta),
-                _prox_l1_complex(b_dense_imag, b_abs, beta),
+                operators[prox_operator](b_dense_real, b_abs, beta),
+                operators[prox_operator](b_dense_imag, b_abs, beta),
             ],
             axis=0,
         )
@@ -249,6 +267,7 @@ def sparsify_modes(
         "bounds", [("lower", float), ("upper", float)]
     ) = None,
     osqp_settings: Dict[str, Any] = None,
+    prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Calculate sparse DMD modes using cont. eigenvalues :math:`\boldsymbol{\omega}`
         and measurment times :math:`\boldsymbol{t}`
@@ -275,6 +294,9 @@ def sparsify_modes(
     :type bounds_imag: NamedTuple, optional
     :param osqp_settings: OSQP solver settings
     :type osqp_settings: Dict[str, Any], optional
+    :param prox_operator: Proximal operator for sparsifying the parameters.
+                          Supported operator: ["prox_l1", "hard_threshold"]. Defaults to "prox_l1"
+    :type prox_operator: str, optional
     :return: Sparse modes, and new amplitudes.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
@@ -342,6 +364,7 @@ def sparsify_modes(
         lb,
         ub,
         osqp_settings,
+        prox_operator,
     )[0]
 
     modes_t = np.zeros(
@@ -832,6 +855,7 @@ modes (either a string or a function)"""
             "Bound", [("lower", float), ("upper", float)]
         ) = None,
         osqp_settings: Dict[str, Any] = None,
+        prox_operator: str = "prox_l1",
     ):
         r"""Sparsify DMD modes subject to constraints.
 
@@ -847,6 +871,9 @@ modes (either a string or a function)"""
         :type bounds_imag: NamedTuple, optional
         :param osqp_settings: OSQP solver settings
         :type osqp_settings: Dict[str, Any], optional
+        :param prox_operator: Proximal operator for sparsifying the parameters.
+                              Supported operator: ["prox_l1", "hard_threshold"]. Defaults to "prox_l1"
+        :type prox_operator: str, optional
         :return: This instance of `ModesTuner` in order to allow
             chaining multiple operations.
         :rtype: object
@@ -870,6 +897,7 @@ modes (either a string or a function)"""
                 bounds_real,
                 bounds_imag,
                 osqp_settings,
+                prox_operator,
             )
 
             # force new values
