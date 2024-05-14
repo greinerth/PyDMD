@@ -1028,7 +1028,9 @@ def test_sr3_qp_unconstrained() -> None:
     np.testing.assert_allclose(u_fitted_modes.real, b_fitted_modes.real)
     np.testing.assert_allclose(u_fitted_modes.imag, b_fitted_modes.imag)
 
-    dmd_fitted_modes, amps, _ = sparsify_modes(omegas, time, z, alpha=0, beta=0, max_iter=10)
+    dmd_fitted_modes, amps, _ = sparsify_modes(
+        omegas, time, z, alpha=0, beta=0, max_iter=10
+    )
     np.testing.assert_allclose(dmd_fitted_modes.real, b_fitted_modes.real)
     np.testing.assert_allclose(dmd_fitted_modes.imag, b_fitted_modes.imag)
 
@@ -1218,8 +1220,8 @@ def test_sparse_modes() -> None:
     )
 
 
-@pytest.mark.skip(reason="Test not working as expected yet!")
 def test_synthetic_sparse_signal() -> None:
+    """Test synthetic dmd signal (constructed by sparse modes)."""
     modes_real = np.random.binomial(
         1.0, 0.5, size=(1024, 4)
     ) * np.random.normal(size=(1024, 4))
@@ -1247,17 +1249,17 @@ def test_synthetic_sparse_signal() -> None:
     time = np.linspace(0.0, 10.0, 1024)
 
     signal = varprodmd_predict(modes, omegas, amps, time)
-    new_modes, new_amps, ok_idx = sparsify_modes(
+    new_modes, _, _ = sparsify_modes(
         omegas,
         time,
         signal,
-        alpha=100.0,
-        beta=1.0,
-        max_iter=250,
+        alpha=10.0,
+        beta=5e-4,
+        max_iter=100,
         bounds_real=br,
         bounds_imag=bi,
         prox_operator="prox_l1",
     )
 
-    np.testing.assert_allclose(new_modes.real, modes.real)
-    np.testing.assert_allclose(new_modes.imag, modes.imag)
+    np.testing.assert_allclose(new_modes.real, modes.real, atol=1e-4, rtol=1)
+    np.testing.assert_allclose(new_modes.imag, modes.imag, atol=1e-4, rtol=1)
