@@ -1028,6 +1028,13 @@ def test_sr3_qp_unconstrained() -> None:
     np.testing.assert_allclose(u_fitted_modes.real, b_fitted_modes.real)
     np.testing.assert_allclose(u_fitted_modes.imag, b_fitted_modes.imag)
 
+    dmd_fitted_modes, amps, _ = sparsify_modes(omegas, time, z, alpha=0, beta=0, max_iter=10)
+    np.testing.assert_allclose(dmd_fitted_modes.real, b_fitted_modes.real)
+    np.testing.assert_allclose(dmd_fitted_modes.imag, b_fitted_modes.imag)
+
+    rec = varprodmd_predict(dmd_fitted_modes, omegas, amps, time)
+    assert np.linalg.norm(z - rec, axis=0).mean() < 1e-9
+
 
 def test_sr3_qp_constrained() -> None:
     """Test QP"""

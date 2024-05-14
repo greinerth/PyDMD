@@ -17,7 +17,7 @@ BOUND = namedtuple("Bound", ["lower", "upper"])
 OSQP_SETTINGS = MappingProxyType(
     {
         "max_iter": int(1e6),
-        "linsys_solver": "qldl",
+        "linsys_solver": "qdldl",
         "eps_abs": 1e-12,
         "verbose": False,
     }
@@ -879,7 +879,7 @@ modes (either a string or a function)"""
         :rtype: object
         """
         for i, dmd in enumerate(self._dmds):
-            omegas = np.log(dmd.eigs) / dmd.original_time["dt"]
+            omegas = np.log(dmd.eigs) / dmd.dmd_time["dt"]
             data_in = (
                 np.concatenate(
                     [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
