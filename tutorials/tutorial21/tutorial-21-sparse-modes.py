@@ -10,11 +10,11 @@ from pydmd.dmd_modes_tuner import BOUND, sparsify_modes
 if __name__ == "__main__":
     DIR = os.path.abspath("")
     DIR = os.path.join(DIR, "video")
-    READ_FRAMES = 64
+    READ_FRAMES = 16
     OSQP_settings = {
         "max_iter": int(1e6),
         "verbose": False,
-        "linsys_solver": "cuda pcg"
+        "linsys_solver": "qdldl"
     }
 
     cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))
@@ -53,12 +53,13 @@ if __name__ == "__main__":
         omegas,
         time,
         obs,
-        beta=1e-4,
+        beta=1e-1,
         alpha=1.0,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
         max_iter=10,
-        osqp_settings=OSQP_settings
+        osqp_settings=OSQP_settings,
+        prox_operator="prox_l1"
     )
     omegas = omegas[idx_ok]
     sorted_idx = np.argsort(np.abs(omegas.imag))

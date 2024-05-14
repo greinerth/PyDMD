@@ -979,10 +979,60 @@ def test_modes_selector_all_dmd_types(dmd):
     assert True
 
 
-def test_sr3_qp() -> None:
+def test_sr3_qp_unconstrained() -> None:
+    """Test unconstrained QP"""
+
+    # Test dense, unconstrained QP
+    time = np.linspace(0, 4 * np.pi, 100)
+    x_loc = np.linspace(-10, 10, 1024)
+    z = signal(*np.meshgrid(x_loc, time)).T
+    dmd = DMD()
+    dmd.fit(z[:, :-1], z[:, 1:])
+    omegas = np.log(dmd.eigs) / (time[1] - time[0])
+    a_mat = _get_a_mat(omegas, time)
+
+    u_real_flat, b_real_flat = sr3_optimize_qp(
+        a_mat, z.T, alpha=0, beta=0, max_iter=10
+    )
+    b_real = np.reshape(
+        b_real_flat, (2 * dmd.modes.shape[1], dmd.modes.shape[0]), "F"
+    )
+    b_fitted_modes_t = np.zeros(
+        (b_real.shape[0] // 2, b_real.shape[1]), dtype=complex
+    )
+    b_fitted_modes_t.real = b_real[: b_real.shape[0] // 2]
+    b_fitted_modes_t.imag = b_real[b_real.shape[0] // 2 :]
+    b_fitted_modes = b_fitted_modes_t.T
+
+    amps = np.linalg.norm(b_fitted_modes, axis=0)
+    b_fitted_modes /= amps[None]
+    rec = varprodmd_predict(b_fitted_modes, omegas, amps, time)
+    assert np.linalg.norm(z - rec, axis=0).mean() < 1e-9
+
+    # The "sparse" support should yield the same result
+    u_real = np.reshape(
+        u_real_flat, (2 * dmd.modes.shape[1], dmd.modes.shape[0]), "F"
+    )
+    u_fitted_modes_t = np.zeros(
+        (u_real.shape[0] // 2, b_real.shape[1]), dtype=complex
+    )
+    u_fitted_modes_t.real = u_real[: u_real.shape[0] // 2]
+    u_fitted_modes_t.imag = b_real[u_real.shape[0] // 2 :]
+    u_fitted_modes = u_fitted_modes_t.T
+
+    amps = np.linalg.norm(u_fitted_modes, axis=0)
+    u_fitted_modes /= amps[None]
+    rec = varprodmd_predict(u_fitted_modes, omegas, amps, time)
+    assert np.linalg.norm(z - rec, axis=0).mean() < 1e-9
+
+    np.testing.assert_allclose(u_fitted_modes.real, b_fitted_modes.real)
+    np.testing.assert_allclose(u_fitted_modes.imag, b_fitted_modes.imag)
+
+
+def test_sr3_qp_constrained() -> None:
     """Test QP"""
 
-    # Test unconstrained QP
+    # Test sparse, unconstrained QP
     time = np.linspace(0, 4 * np.pi, 100)
     x_loc = np.linspace(-10, 10, 1024)
     z = signal(*np.meshgrid(x_loc, time)).T
@@ -1201,6 +1251,6 @@ def test_synthetic_sparse_signal() -> None:
         bounds_imag=bi,
         prox_operator="prox_l1",
     )
-    print(np.isclose(new_modes.real, modes.real))
+
     np.testing.assert_allclose(new_modes.real, modes.real)
     np.testing.assert_allclose(new_modes.imag, modes.imag)
