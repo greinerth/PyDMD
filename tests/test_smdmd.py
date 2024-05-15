@@ -67,17 +67,44 @@ def test_smdmd_synthetic_signal_constrained() -> None:
 
     time = np.linspace(0.0, 1.0, 256)
     synthethic_signal = varprodmd_predict(modes, omegas, amps, time)
-
-    dmd = SMDMD(alpha=10.0, beta=1e-3, rb=rb, ib=ib)
+    osqp_settings = {
+        "linsys_solver": "qdldl",
+        "max_iter": 1000,
+        "verbose": False,
+        "polish": True,
+    }
+    dmd = SMDMD(
+        alpha=10.0,
+        beta=1e-5,
+        rb=rb,
+        ib=ib,
+        svd_rank=modes.shape[-1],
+        osqp_settings=osqp_settings,
+        qp_max_iter=100,
+    )
     dmd.dmd_time = {"dt": time[1] - time[0], "t0": time[0], "tend": time[-1]}
     dmd.fit(synthethic_signal)
 
+    # check if constraints are met
     scaled_modes = dmd.modes * dmd.amplitudes[None]
     assert np.sum(scaled_modes.real < rb.lower) == 0
     assert np.sum(scaled_modes.real > rb.upper) == 0
     assert np.sum(scaled_modes.imag < ib.lower) == 0
     assert np.sum(scaled_modes.imag > ib.upper) == 0
+    assert (
+        np.sum(
+            (scaled_modes.real >= rb.lower) & (scaled_modes.real <= rb.upper)
+        )
+        > 0
+    )
+    assert (
+        np.sum(
+            (scaled_modes.imag >= ib.lower) & (scaled_modes.imag <= ib.upper)
+        )
+        > 0
+    )
 
+    # assert that timesteps are the same!
     assert np.array_equal(dmd.dmd_timesteps, time)
     rec = varprodmd_predict(
         dmd.modes,
@@ -85,4 +112,4 @@ def test_smdmd_synthetic_signal_constrained() -> None:
         dmd.amplitudes,
         dmd.dmd_timesteps,
     )
-    assert np.linalg.norm(synthethic_signal - rec, axis=0).mean() < 1.0
+    assert np.linalg.norm(synthethic_signal - rec, axis=0).mean() < 0.1
