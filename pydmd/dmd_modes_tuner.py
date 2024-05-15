@@ -357,7 +357,7 @@ def sparsify_modes(
 
     modes_real_t = sr3_optimize_qp(
         a_mat,
-        data.T.astype(complex),
+        data.T.astype(np.complex128),
         alpha,
         beta,
         max_iter,
@@ -368,7 +368,7 @@ def sparsify_modes(
     )[0]
 
     modes_t = np.zeros(
-        (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=complex
+        (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=np.complex128
     )
     modes_t.real = modes_real_t[: modes_real_t.shape[0] // 2, :]
     modes_t.imag = modes_real_t[modes_real_t.shape[0] // 2 :, :]
