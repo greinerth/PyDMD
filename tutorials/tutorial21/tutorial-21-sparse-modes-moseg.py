@@ -21,6 +21,13 @@ if __name__ == "__main__":
     AREA_SIZE_MIN = 5
     AREA_SIZE_MAX = 1000.0
     PIXELTHRESH = 0
+    OSQP_settings = {
+        "linsys_solver": "qdldl",
+        "max_iter": int(1e6),
+        "polish": True,
+        "verbose": False
+    }
+
     cap = cv2.VideoCapture(os.path.join(DIR, "flock.mp4"))
 
     if not cap.isOpened():
@@ -61,11 +68,12 @@ if __name__ == "__main__":
         omegas,
         time,
         obs,
-        alpha=1.0,
+        alpha=10.0,
         beta=1e-6,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
         max_iter=10,
+        osqp_settings=OSQP_settings
     )
     dt = timeit.default_timer() - t0
 

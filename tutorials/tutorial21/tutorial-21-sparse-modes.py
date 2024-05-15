@@ -11,10 +11,12 @@ if __name__ == "__main__":
     DIR = os.path.abspath("")
     DIR = os.path.join(DIR, "video")
     READ_FRAMES = 16
+
     OSQP_settings = {
         "max_iter": int(1e6),
         "verbose": False,
-        "linsys_solver": "qdldl"
+        "linsys_solver": "qdldl",
+        "polish": True
     }
 
     cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))
@@ -49,12 +51,13 @@ if __name__ == "__main__":
 
     bounds_real = BOUND(0.0, 255.0)
     bounds_imag = BOUND(0.0, 0.0)
+
     sparse_modes, amps, idx_ok = sparsify_modes(
         omegas,
         time,
         obs,
-        beta=1e-1,
-        alpha=1.0,
+        beta=1e-6,
+        alpha=10.0,
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
         max_iter=10,
