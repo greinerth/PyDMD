@@ -92,8 +92,25 @@ def select_modes(
     return dmd
 
 
-def _prox_l1(X: np.ndarray, alpha: float) -> np.ndarray:
-    return np.sign(X) * np.maximum(np.abs(X) - alpha, 0)
+def _hard_threshold_complex(
+    X_real_imag: np.ndarray, X_abs: np.ndarray, alpha: float
+) -> np.ndarray:
+    """Hard threshold operator for complex numbers
+       taken from https://link.springer.com/book/10.1007/978-0-8176-4948-7
+
+    :param X_real_imag: Real or imaginary part(s) of the complex number(s)
+    :type X_real_imag: np.ndarray
+    :param X_abs: Absolute value(s)
+    :type X_abs: np.ndarray
+    :param alpha: Threshold for prox operator
+    :type alpha: float
+    :return: Prox operator of real/imaginary parts
+    :rtype: np.ndarray
+    """
+    out = np.zeros_like(X_real_imag)
+    msk = X_abs >= alpha
+    out[msk] = X_real_imag[msk]
+    return out
 
 
 def _prox_l1_complex(
@@ -111,18 +128,38 @@ def _prox_l1_complex(
     :rtype: np.ndarray
     """
     out = np.zeros_like(X_real_imag)
-    # print(out.shape)
     msk = X_abs >= alpha
-    # print(msk.shape, X_abs.shape, out.shape)
     out[msk] = (X_real_imag[msk] / X_abs[msk]) * (X_abs[msk] - alpha)
     return out
 
 
-def _hard_threshold(
-    X_real_imag: np.ndarray, X_abs: np.ndarray, alpha: float
+def _prox_scad_complex(
+    X_real_imag: np.ndarray, X_abs: np.ndarray, alpha: float, a: float = 3.7
 ) -> np.ndarray:
+    """Smoothly Clipped Absolute Deviation (SCAD) proximal operator for complex numbers,
+       adapted from https://pyproximal.readthedocs.io/en/stable/api/generated/pyproximal.SCAD.html#id1
+
+    :param X_real_imag: Real or imaginary part(s) of the complex number(s)
+    :type X_real_imag: np.ndarray
+    :param X_abs: Absolute value(s)
+    :type X_abs: np.ndarray
+    :param alpha: Threshold for prox operator
+    :type alpha: float
+    :param a: Additional value which influences upper bound of the SCAD prox operator
+    :return: Prox operator of real/imaginary parts
+    :rtype: np.ndarray
+    """
+    lower_bound = 2.0 * alpha
+    upper_bound = a * alpha
+
     out = np.zeros_like(X_real_imag)
-    msk = X_abs >= alpha
+    msk = X_abs <= lower_bound
+    out[msk] = _prox_l1_complex(X_real_imag[msk], X_abs[msk], alpha)
+
+    msk = (X_abs <= upper_bound) & (X_abs > lower_bound)
+    out[msk] = X_real_imag[msk] * (a * (1 - alpha / X_abs[msk]))
+
+    msk = X_abs > upper_bound
     out[msk] = X_real_imag[msk]
     return out
 
@@ -177,7 +214,8 @@ def sr3_optimize_qp(
     :param osqp_settings: OSQP solver settings
     :type osqp_settings: Dict[str, Any], optional
     :param prox_operator: Proximal operator for sparsifying the parameters.
-                          Supported operator: ["prox_l1", "hard_threshold"]. Defaults to "prox_l1"
+                          Supported operator: ["hard_threshold", "prox_l1", "prox_scad"].
+                          Defaults to "prox_l1"
     :type prox_operator: str, optional
     :return: :math:`\boldsymbol{b}` and sparse support :math:`\boldsymbol{u}`.
     :rtype: tuple[np.ndarray, np.ndarray]
@@ -185,10 +223,16 @@ def sr3_optimize_qp(
     if osqp_settings is None:
         osqp_settings = OSQP_SETTINGS
 
-    operators = {"prox_l1": _prox_l1_complex, "hard_threshold": _hard_threshold}
+    operators = {
+        "hard_threshold": _hard_threshold_complex,
+        "prox_l1": _prox_l1_complex,
+        "prox_scad": _prox_scad_complex,
+    }
 
     if prox_operator not in operators:
-        raise ValueError(f"{prox_operator} not supported!")
+        raise ValueError(
+            f"{prox_operator} not supported! Please select one of {list(operators.keys())}"
+        )
 
     alpha = abs(alpha)
     beta = abs(beta)
@@ -213,7 +257,6 @@ def sr3_optimize_qp(
         format="csc",
     )
 
-    # problem = Problem(P, q_init, lb=lb, ub=ub)
     problem = OSQP()
     problem.setup(
         P,

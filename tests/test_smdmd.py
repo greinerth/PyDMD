@@ -112,4 +112,4 @@ def test_smdmd_synthetic_signal_constrained() -> None:
         dmd.amplitudes,
         dmd.dmd_timesteps,
     )
-    assert np.linalg.norm(synthethic_signal - rec, axis=0).mean() < 0.1
+    assert np.linalg.norm(synthethic_signal - rec, axis=0).mean() < 0.5

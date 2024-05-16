@@ -73,7 +73,8 @@ if __name__ == "__main__":
         bounds_real=bounds_real,
         bounds_imag=bounds_imag,
         max_iter=10,
-        osqp_settings=OSQP_settings
+        osqp_settings=OSQP_settings,
+        prox_operator="prox_scad"
     )
     dt = timeit.default_timer() - t0
 
