@@ -18,6 +18,7 @@ __all__ = [
     "pidmd",
     "edmd",
     "varprodmd",
+    "smdmd",
     "lando",
 ]
 
@@ -44,3 +45,4 @@ from .rdmd import RDMD
 from .spdmd import SpDMD
 from .subspacedmd import SubspaceDMD
 from .varprodmd import VarProDMD
+from .smdmd import SMDMD
