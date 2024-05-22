@@ -126,6 +126,7 @@ class SMDMD(DMD):
         self.dmd_time = dmd_time
         time = self.dmd_timesteps
         omegas = np.log(self.eigs) / self.dmd_time["dt"]
+
         data_in = (
             X
             if Y is None

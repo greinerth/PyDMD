@@ -1,4 +1,6 @@
+import logging
 import os
+import timeit
 
 import cv2
 import matplotlib.pyplot as plt
@@ -8,7 +10,9 @@ from pydmd import DMD
 from pydmd.dmd_modes_tuner import BOUND, sparsify_modes
 
 if __name__ == "__main__":
-    DIR = os.path.abspath("")
+    logging.getLogger().setLevel(logging.INFO)
+
+    DIR = os.path.dirname(os.path.realpath(__file__))
     DIR = os.path.join(DIR, "video")
     READ_FRAMES = 16
 
@@ -16,7 +20,7 @@ if __name__ == "__main__":
         "max_iter": int(1e6),
         "verbose": False,
         "linsys_solver": "qdldl",
-        "polish": True
+        "polish": True,
     }
 
     cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))
@@ -52,6 +56,7 @@ if __name__ == "__main__":
     bounds_real = BOUND(0.0, 255.0)
     bounds_imag = BOUND(0.0, 0.0)
 
+    t0 = timeit.default_timer()
     sparse_modes, amps, idx_ok = sparsify_modes(
         omegas,
         time,
@@ -62,8 +67,12 @@ if __name__ == "__main__":
         bounds_imag=bounds_imag,
         max_iter=10,
         osqp_settings=OSQP_settings,
-        prox_operator="prox_l1"
+        prox_operator="prox_l1",
     )
+    dt = timeit.default_timer() - t0
+
+    logging.info(f"Optimization time: {dt:.4f} [s]")
+
     omegas = omegas[idx_ok]
     sorted_idx = np.argsort(np.abs(omegas.imag))
     sparse_modes = sparse_modes[:, sorted_idx]

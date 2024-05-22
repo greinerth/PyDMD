@@ -15,17 +15,17 @@ from pydmd.dmd_modes_tuner import BOUND, sparsify_modes
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
 
-    DIR = os.path.abspath("")
+    DIR = os.path.dirname(os.path.realpath(__file__))
     DIR = os.path.join(DIR, "video")
     READ_FRAMES = 12
     AREA_SIZE_MIN = 5
     AREA_SIZE_MAX = 1000.0
-    PIXELTHRESH = 0
+    PIXELTHRESH = 10
     OSQP_settings = {
         "linsys_solver": "qdldl",
         "max_iter": int(1e6),
         "polish": True,
-        "verbose": False
+        "verbose": False,
     }
 
     cap = cv2.VideoCapture(os.path.join(DIR, "flock.mp4"))
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         bounds_imag=bounds_imag,
         max_iter=10,
         osqp_settings=OSQP_settings,
-        prox_operator="prox_scad"
+        prox_operator="prox_scad",
     )
     dt = timeit.default_timer() - t0
 
@@ -95,7 +95,8 @@ if __name__ == "__main__":
         (int(height), int(width)),
     )
 
-    msk = img_grey_fast > PIXELTHRESH
+    img_fg = images[..., 0] - img_grey_bg
+    msk = img_fg > PIXELTHRESH
     msk = morphology.remove_small_objects(msk, AREA_SIZE_MIN)
     labels = label(msk, connectivity=1)
 
