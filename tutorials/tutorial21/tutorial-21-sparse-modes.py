@@ -8,13 +8,15 @@ import numpy as np
 
 from pydmd import DMD
 from pydmd.dmd_modes_tuner import BOUND, sparsify_modes
+import pathlib
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
 
-    DIR = os.path.dirname(os.path.realpath(__file__))
-    DIR = os.path.join(DIR, "video")
     READ_FRAMES = 16
+    DIR = pathlib.Path(__file__).parent.parent
+    DIR = os.path.join(DIR, "data")
+    cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))
 
     OSQP_settings = {
         "max_iter": int(1e6),
@@ -23,7 +25,6 @@ if __name__ == "__main__":
         "polish": True,
     }
 
-    cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))
 
     if not cap.isOpened():
         raise FileNotFoundError(

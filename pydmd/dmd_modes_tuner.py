@@ -129,7 +129,7 @@ def _prox_l1_complex(
     """
     out = np.zeros_like(X_real_imag)
     msk = X_abs >= alpha
-    out[msk] = (X_real_imag[msk] / X_abs[msk]) * (X_abs[msk] - alpha)
+    out[msk] = np.divide(X_real_imag[msk], X_abs[msk], where=X_abs[msk] != 0) * (X_abs[msk] - alpha)
     return out
 
 

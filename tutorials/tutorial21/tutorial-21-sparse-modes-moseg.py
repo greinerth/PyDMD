@@ -11,12 +11,15 @@ from skimage.measure import label
 
 from pydmd import DMD
 from pydmd.dmd_modes_tuner import BOUND, sparsify_modes
+import pathlib
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
 
-    DIR = os.path.dirname(os.path.realpath(__file__))
-    DIR = os.path.join(DIR, "video")
+    DIR = pathlib.Path(__file__).parent.parent
+    DIR = os.path.join(DIR, "data")
+    cap = cv2.VideoCapture(os.path.join(DIR, "flock.mp4"))
+
     READ_FRAMES = 12
     AREA_SIZE_MIN = 5
     AREA_SIZE_MAX = 1000.0
@@ -27,8 +30,6 @@ if __name__ == "__main__":
         "polish": True,
         "verbose": False,
     }
-
-    cap = cv2.VideoCapture(os.path.join(DIR, "flock.mp4"))
 
     if not cap.isOpened():
         raise FileNotFoundError(

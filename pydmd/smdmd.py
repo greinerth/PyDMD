@@ -2,10 +2,10 @@
 
 from copy import deepcopy
 from typing import Any, Dict, NamedTuple, Union
-
 import numpy as np
 
 from .dmd import DMD
+from .varprodmd import varprodmd_predict
 from .dmd_modes_tuner import BOUND, sparsify_modes
 
 
@@ -121,9 +121,18 @@ class SMDMD(DMD):
         :type Y: numpy.ndarray or iterable
         """
         # protect dmd_time from overwrite
-        dmd_time = deepcopy(self.dmd_time)
+        time_set = self._dmd_time is not None
+        dmd_time = None
+
+        if time_set:
+            dmd_time = deepcopy(self.dmd_time)
+
         super().fit(X, Y)
-        self.dmd_time = dmd_time
+
+        # overwrite time
+        if time_set:
+            self.dmd_time = dmd_time
+
         time = self.dmd_timesteps
         omegas = np.log(self.eigs) / self.dmd_time["dt"]
 
@@ -155,3 +164,30 @@ class SMDMD(DMD):
         self._eigs = self.eigs[ok_idx]
         self._allocate_modes_bitmask_proxy()
         return self
+
+    def forecast(self, time: np.ndarray) -> np.ndarray:
+        """Use dmd model to forecast w.r.t. time
+
+        :param time: Desired timestamps
+        :type time: np.ndarray
+        :raises ValueError: If time array is not 1D._
+        :return: Forcasted snapshots
+        :rtype: np.ndarray
+        """
+        if len(time.shape) != 1:
+            raise ValueError("Expected 1D array!")
+        return varprodmd_predict(
+            self.modes,
+            np.log(self.eigs) / self.dmd_time["dt"],
+            self.amplitudes,
+            time,
+        )
+
+    @property
+    def reconstructed_data(self) -> np.ndarray:
+        """Get the reconstructed.
+
+        :return: Reconstructed data
+        :rtype: np.ndarray
+        """
+        return self.forecast(self.dmd_timesteps)

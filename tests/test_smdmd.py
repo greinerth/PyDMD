@@ -106,10 +106,4 @@ def test_smdmd_synthetic_signal_constrained() -> None:
 
     # assert that timesteps are the same!
     assert np.array_equal(dmd.dmd_timesteps, time)
-    rec = varprodmd_predict(
-        dmd.modes,
-        np.log(dmd.eigs) / dmd.dmd_time["dt"],
-        dmd.amplitudes,
-        dmd.dmd_timesteps,
-    )
-    assert np.linalg.norm(synthethic_signal - rec, axis=0).mean() < 0.5
+    assert np.linalg.norm(synthethic_signal - dmd.reconstructed_data, axis=0).mean() < 0.5
