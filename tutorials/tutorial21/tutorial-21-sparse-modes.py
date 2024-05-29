@@ -19,12 +19,11 @@ if __name__ == "__main__":
     cap = cv2.VideoCapture(os.path.join(DIR, "cars_lowres.mp4"))
 
     OSQP_settings = {
-        "max_iter": int(1e6),
+        # "max_iter": int(1e6),
         "verbose": False,
         "linsys_solver": "qdldl",
         "polish": True,
     }
-
 
     if not cap.isOpened():
         raise FileNotFoundError(

@@ -26,7 +26,7 @@ if __name__ == "__main__":
     PIXELTHRESH = 10
     OSQP_settings = {
         "linsys_solver": "qdldl",
-        "max_iter": int(1e6),
+        # "max_iter": int(1e6),
         "polish": True,
         "verbose": False,
     }
@@ -105,21 +105,20 @@ if __name__ == "__main__":
     dt = timeit.default_timer() - t0
     logging.info(f"Region dection time: {dt:.4f} [s]")
 
-    fig1, ax1 = plt.subplots(1, 1)
-    fig2, ax2 = plt.subplots(1, 1)
-    fig3, ax3 = plt.subplots(1, 1)
+    fig, ax = plt.subplots(1, 3)
 
-    ax1.imshow(img_overlay)
-    ax1.get_xaxis().set_ticks([])
-    ax1.get_yaxis().set_ticks([])
-    ax2.imshow(img_grey_fast, cmap="gray")
-    ax2.get_xaxis().set_ticks([])
-    ax2.get_yaxis().set_ticks([])
-    ax3.imshow(img_grey_bg, cmap="gray")
-    ax3.get_xaxis().set_ticks([])
-    ax3.get_yaxis().set_ticks([])
+    ax[2].imshow(img_overlay)
+    ax[2].get_xaxis().set_ticks([])
+    ax[2].get_yaxis().set_ticks([])
+    ax[1].imshow(img_grey_fast, cmap="gray")
+    ax[1].get_xaxis().set_ticks([])
+    ax[1].get_yaxis().set_ticks([])
+    ax[0].imshow(img_grey_bg, cmap="gray")
+    ax[0].get_xaxis().set_ticks([])
+    ax[0].get_yaxis().set_ticks([])
 
-    fig1.suptitle("RoI")
-    fig2.suptitle("Fastest Mode")
-    fig3.suptitle("Background Mode")
+    ax[2].set_title("RoI")
+    ax[1].set_title("Fastest Mode")
+    ax[0].set_title("Background Mode")
+    fig.tight_layout()
     plt.show()
