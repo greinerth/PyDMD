@@ -137,7 +137,7 @@ class SMDMD(DMD):
         omegas = np.log(self.eigs) / self.dmd_time["dt"]
 
         data_in = (
-            X
+            self.snapshots
             if Y is None
             else np.concatenate(
                 [self.snapshots, self.snapshots_y[:, -1, None]], axis=-1
