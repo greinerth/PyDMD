@@ -252,7 +252,8 @@ def sr3_optimize_qp(
     A_hat = np.concatenate([A_hat_upper, A_hat_lower], axis=0)
 
     Y = np.concatenate([data.real, data.imag], axis=0)
-    q_init = -np.ravel(A_hat.T @ Y, "F")
+
+    q_init = -np.ravel(np.dot(A_hat.T, Y), "F")
     n_blocks = q_init.shape[0] // F_kappa.shape[1]
     P = scp.sparse.triu(
         scp.sparse.kron(scp.sparse.eye(n_blocks, format="csc"), F_kappa),
