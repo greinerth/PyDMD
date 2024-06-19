@@ -16,9 +16,7 @@ from osqp import OSQP
 BOUND = namedtuple("Bound", ["lower", "upper"])
 OSQP_SETTINGS = MappingProxyType(
     {
-        "max_iter": int(1e6),
         "linsys_solver": "qdldl",
-        "eps_abs": 1e-12,
         "verbose": False,
     }
 )
