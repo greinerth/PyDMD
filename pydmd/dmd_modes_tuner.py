@@ -13,6 +13,7 @@ import numpy as np
 import scipy as scp
 from osqp import OSQP
 
+
 BOUND = namedtuple("Bound", ["lower", "upper"])
 OSQP_SETTINGS = MappingProxyType(
     {
@@ -188,7 +189,7 @@ def sr3_optimize_qp(
     max_iter: int = 10,
     lb: np.ndarray = None,
     ub: np.ndarray = None,
-    osqp_settings: Dict[str, Any] = None,
+    osqp_settings: Dict[str, Any] | None = None,
     prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""Perform Sparse Relaxed Regularization (SR3) with soft-l1 prox operator
@@ -231,7 +232,8 @@ def sr3_optimize_qp(
 
     if prox_operator not in operators:
         raise ValueError(
-            f"{prox_operator} not supported! Please select one of {list(operators.keys())}"
+            f"{prox_operator} not supported! Please select one of {
+                list(operators.keys())}"
         )
 
     alpha = abs(alpha)
@@ -276,7 +278,6 @@ def sr3_optimize_qp(
     u_dense = None
 
     for _ in range(max_iter):
-
         b_flat = problem.solve().x
         b_dense = np.reshape(b_flat, (-1, Y.shape[-1]), "F")
 
@@ -304,13 +305,13 @@ def sparsify_modes(
     alpha: float = 1.0,
     beta: float = 1e-6,
     max_iter: int = 10,
-    bounds_real: NamedTuple(
-        "bounds", [("lower", float), ("upper", float)]
+    bounds_real: (
+        NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
     ) = None,
-    bounds_imag: NamedTuple(
-        "bounds", [("lower", float), ("upper", float)]
+    bounds_imag: (
+        NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
     ) = None,
-    osqp_settings: Dict[str, Any] = None,
+    osqp_settings: Dict[str, Any] | None = None,
     prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Calculate sparse DMD modes using cont. eigenvalues :math:`\boldsymbol{\omega}`
@@ -344,10 +345,10 @@ def sparsify_modes(
     :return: Sparse modes, and new amplitudes.
     :rtype: tuple[np.ndarray, np.ndarray]
     """
-    bounds_real_lower: np.ndarray = None
-    bounds_real_upper: np.ndarray = None
-    bounds_imag_lower: np.ndarray = None
-    bounds_imag_upper: np.ndarray = None
+    bounds_real_lower: np.ndarray | None = None
+    bounds_real_upper: np.ndarray | None = None
+    bounds_imag_lower: np.ndarray | None = None
+    bounds_imag_upper: np.ndarray | None = None
     lb = None
     ub = None
 
