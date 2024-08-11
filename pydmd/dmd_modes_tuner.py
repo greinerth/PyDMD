@@ -307,10 +307,10 @@ def sparsify_modes(
     max_iter: int = 10,
     bounds_real: (
         NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
-    ) = None,
+    ) | None = None,
     bounds_imag: (
         NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
-    ) = None,
+    ) | None = None,
     osqp_settings: Dict[str, Any] | None = None,
     prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -893,11 +893,11 @@ modes (either a string or a function)"""
         alpha: float = 1.0,
         beta: float = 1e-6,
         max_iter: int = 10,
-        bounds_real: NamedTuple(
-            "Bound", [("lower", float), ("upper", float)]
+        bounds_real: (
+            NamedTuple("Bound", [("lower", float), ("upper", float)]) | None
         ) = None,
-        bounds_imag: NamedTuple(
-            "Bound", [("lower", float), ("upper", float)]
+        bounds_imag: (
+            NamedTuple("Bound", [("lower", float), ("upper", float)]) | None
         ) = None,
         osqp_settings: Dict[str, Any] = None,
         prox_operator: str = "prox_l1",

@@ -82,15 +82,21 @@ class SMDMD(DMD):
         alpha: float = 1.0,
         beta: float = 1e-4,
         prox_operator: str = "prox_l1",
-        rb: NamedTuple(
-            "bound",
-            [("lower", Union[float, int]), ("upper", Union[float, int])],
+        rb: (
+            NamedTuple(
+                "bound",
+                [("lower", Union[float, int]), ("upper", Union[float, int])],
+            )
+            | None
         ) = None,
-        ib: NamedTuple(
-            "bound",
-            [("lower", Union[float, int]), ("upper", Union[float, int])],
+        ib: (
+            NamedTuple(
+                "bound",
+                [("lower", Union[float, int]), ("upper", Union[float, int])],
+            )
+            | None
         ) = None,
-        osqp_settings: Dict[str, Any] = None,
+        osqp_settings: Dict[str, Any] | None = None,
     ):
         super().__init__(
             svd_rank,
