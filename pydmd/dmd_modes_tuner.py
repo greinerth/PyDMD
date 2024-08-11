@@ -13,7 +13,6 @@ import numpy as np
 import scipy as scp
 from osqp import OSQP
 
-
 BOUND = namedtuple("Bound", ["lower", "upper"])
 OSQP_SETTINGS = MappingProxyType(
     {
@@ -187,8 +186,8 @@ def sr3_optimize_qp(
     alpha: float,
     beta: float,
     max_iter: int = 10,
-    lb: np.ndarray = None,
-    ub: np.ndarray = None,
+    lb: np.ndarray | None = None,
+    ub: np.ndarray | None = None,
     osqp_settings: Dict[str, Any] | None = None,
     prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray]:
