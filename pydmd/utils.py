@@ -6,6 +6,7 @@ from typing import NamedTuple
 from collections import namedtuple
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
+import jax.numpy as jnp
 
 #  Named tuples used in functions.
 #  compute_svd uses "SVD",

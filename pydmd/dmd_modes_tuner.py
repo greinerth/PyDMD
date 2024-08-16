@@ -282,7 +282,7 @@ def sr3_optimize_qp(
 
         # find sparse support with prox operator
         b_dense_real = b_dense[: b_dense.shape[0] // 2]
-        b_dense_imag = b_dense[b_dense.shape[0] // 2 :]
+        b_dense_imag = b_dense[b_dense.shape[0] // 2:]
 
         b_abs = np.sqrt(np.square(b_dense_real) + np.square(b_dense_imag))
         u_dense = np.concatenate(
@@ -341,8 +341,9 @@ def sparsify_modes(
     :param prox_operator: Proximal operator for sparsifying the parameters.
                           Supported operator: ["prox_l1", "hard_threshold"]. Defaults to "prox_l1"
     :type prox_operator: str, optional
-    :return: Sparse modes, and new amplitudes.
-    :rtype: tuple[np.ndarray, np.ndarray]
+    :return: Sparse modes, new amplitudes, indices of non-zero modes. The indices are relevant to select
+        the subset of original (cont.) eigenvalues.
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     bounds_real_lower: np.ndarray | None = None
     bounds_real_upper: np.ndarray | None = None
@@ -415,7 +416,7 @@ def sparsify_modes(
         (modes_real_t.shape[0] // 2, modes_real_t.shape[1]), dtype=np.complex128
     )
     modes_t.real = modes_real_t[: modes_real_t.shape[0] // 2, :]
-    modes_t.imag = modes_real_t[modes_real_t.shape[0] // 2 :, :]
+    modes_t.imag = modes_real_t[modes_real_t.shape[0] // 2:, :]
     sparse_modes = modes_t.T
 
     new_amps = np.linalg.norm(sparse_modes, axis=0)
