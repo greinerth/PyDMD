@@ -1,10 +1,15 @@
 """Utilities module."""
 
+from __future__ import annotations
+
 import warnings
+from collections import namedtuple
 from numbers import Number
 from typing import NamedTuple
-from collections import namedtuple
+
+import jax.numpy as jnp
 import numpy as np
+from jaxlib.xla_extension import ArrayImpl
 from numpy.lib.stride_tricks import sliding_window_view
 
 #  Named tuples used in functions.
@@ -16,7 +21,9 @@ TLSQ = namedtuple("TLSQ", ["X_denoised", "Y_denoised"])
 RQB = namedtuple("RQB", ["Q", "B", "test_matrix"])
 
 
-def _svht(sigma_svd: np.ndarray, rows: int, cols: int) -> int:
+def _svht(
+    sigma_svd: np.ndarray | jnp.ndarray, rows: int, cols: int
+) -> int | ArrayImpl[int]:
     """
     Singular Value Hard Threshold.
 
@@ -26,8 +33,9 @@ def _svht(sigma_svd: np.ndarray, rows: int, cols: int) -> int:
     :type rows: int
     :param cols: Number of columns of original data matrix.
     :type cols: int
+    :raises TypeError: If `sigma_svd` is not of type np.ndarray or jnp.ndarray
     :return: Computed rank.
-    :rtype: int
+    :rtype: int | ArrayImpl[int]
 
     References:
     Gavish, Matan, and David L. Donoho, The optimal hard threshold for
@@ -35,25 +43,40 @@ def _svht(sigma_svd: np.ndarray, rows: int, cols: int) -> int:
     (2014): 5040-5053.
     https://ieeexplore.ieee.org/document/6846297
     """
-    beta = np.divide(*sorted((rows, cols)))
-    omega = 0.56 * beta**3 - 0.95 * beta**2 + 1.82 * beta + 1.43
-    tau = np.median(sigma_svd) * omega
-    rank = np.sum(sigma_svd > tau)
+    if isinstance(sigma_svd, np.ndarray):
+        median_op = np.median
+        sum_op = np.sum
+        divide_op = np.divide
+    elif isinstance(sigma_svd, jnp.ndarray):
+        median_op = jnp.median
+        sum_op = jnp.sum
+        divide_op = jnp.divide
+    else:
+        msg = f"Unsupported parameter type: {type(sigma_svd)}"
+        raise TypeError(msg)
 
-    if rank == 0:
-        warnings.warn(
-            "SVD optimal rank is 0. The largest singular values are "
-            "indistinguishable from noise. Setting rank truncation to 1.",
-            RuntimeWarning,
-        )
+    beta = divide_op(*sorted((rows, cols)))
+    omega = 0.56 * beta**3 - 0.95 * beta**2 + 1.82 * beta + 1.43
+    tau = median_op(sigma_svd) * omega
+    rank = sum_op(sigma_svd > tau)
+
+    if isinstance(sigma_svd, np.ndarray):
+        if rank == 0:
+            warnings.warn(
+                "SVD optimal rank is 0. The largest singular values are "
+                "indistinguishable from noise. Setting rank truncation to 1.",
+                RuntimeWarning,
+            )
         rank = 1
+    elif isinstance(sigma_svd, jnp.ndarray):
+        rank = jnp.maximum(1, rank)
 
     return rank
 
 
 def _compute_rank(
-    sigma_svd: np.ndarray, rows: int, cols: int, svd_rank: Number
-) -> int:
+    sigma_svd: np.ndarray | jnp.ndarray, rows: int, cols: int, svd_rank: Number
+) -> int | ArrayImpl:
     """
     Rank computation for the truncated Singular Value Decomposition.
 
@@ -70,6 +93,7 @@ def _compute_rank(
         are needed to reach the 'energy' specified by `svd_rank`; if -1,
         the method does not compute truncation. Default is 0.
     :type svd_rank: int or float
+    :raises TypeError: If `sigma_svd` is not an np.ndarray or jp.ndarray.
     :return: the computed rank truncation.
     :rtype: int
 
@@ -81,8 +105,19 @@ def _compute_rank(
     if svd_rank == 0:
         rank = _svht(sigma_svd, rows, cols)
     elif 0 < svd_rank < 1:
-        cumulative_energy = np.cumsum(sigma_svd**2 / (sigma_svd**2).sum())
-        rank = np.searchsorted(cumulative_energy, svd_rank) + 1
+        if isinstance(sigma_svd, np.ndarray):
+            cumsum_op = np.cumsum
+            searchsorted_op = np.searchsorted
+        elif isinstance(sigma_svd, jnp.ndarray):
+            cumsum_op = jnp.cumsum
+            searchsorted_op = jnp.searchsorted
+        else:
+            msg = f"Unsupported type. Provided {type(sigma_svd)}!"
+            raise TypeError(msg)
+
+        sigma_squared = sigma_svd * sigma_svd
+        cumulative_energy = cumsum_op(sigma_squared / sigma_squared.sum())
+        rank = searchsorted_op(cumulative_energy, svd_rank) + 1
     elif svd_rank >= 1 and isinstance(svd_rank, int):
         rank = min(svd_rank, sigma_svd.size)
     else:
@@ -91,7 +126,9 @@ def _compute_rank(
     return rank
 
 
-def compute_rank(X: np.ndarray, svd_rank: Number = 0) -> int:
+def compute_rank(
+    X: np.ndarray | jnp.ndarray, svd_rank: Number = 0
+) -> int | ArrayImpl[int]:
     """
     Rank computation for the truncated Singular Value Decomposition.
 
@@ -104,6 +141,7 @@ def compute_rank(X: np.ndarray, svd_rank: Number = 0) -> int:
         are needed to reach the 'energy' specified by `svd_rank`; if -1,
         the method does not compute truncation. Default is 0.
     :type svd_rank: int or float
+    :raises TypeError: If `X` is not an np.ndarray or jnp.ndarray
     :return: the computed rank truncation.
     :rtype: int
 
@@ -112,14 +150,24 @@ def compute_rank(X: np.ndarray, svd_rank: Number = 0) -> int:
     singular values is, IEEE Transactions on Information Theory 60.8
     (2014): 5040-5053.
     """
-    _, s, _ = np.linalg.svd(X, full_matrices=False)
+    if isinstance(X, np.ndarray):
+        _, s, _ = np.linalg.svd(X, full_matrices=False)
+    elif isinstance(X, jnp.ndarray):
+        _, s, _ = jnp.linalg.svd(X, full_matrices=False)
+    else:
+        msg = f"Unsupported type. Provided {type(X)}!"
+        raise TypeError(msg)
     return _compute_rank(s, X.shape[0], X.shape[1], svd_rank)
 
 
 def compute_tlsq(
-    X: np.ndarray, Y: np.ndarray, tlsq_rank: int
+    X: np.ndarray | jnp.ndarray, Y: np.ndarray | jnp.ndarray, tlsq_rank: int
 ) -> NamedTuple(
-    "TLSQ", [("X_denoised", np.ndarray), ("Y_denoised", np.ndarray)]
+    "TLSQ",
+    [
+        ("X_denoised", np.ndarray | jnp.ndarray),
+        ("Y_denoised", np.ndarray | jnp.ndarray),
+    ],
 ):
     """
     Compute Total Least Square.
@@ -133,6 +181,7 @@ def compute_tlsq(
         method uses the argument for the SVD truncation used in the TLSQ
         method.
     :type tlsq_rank: int
+    :raises TypeError: If `X` or `Y` or not a np.ndarray or jnp.ndarray
     :return: the denoised matrix X, the denoised matrix Y
     :rtype: NamedTuple("TLSQ", [('X_denoised', np.ndarray),
                                 ('Y_denoised', np.ndarray)])
@@ -145,23 +194,51 @@ def compute_tlsq(
     if tlsq_rank == 0:
         return X, Y
 
-    V = np.linalg.svd(np.append(X, Y, axis=0), full_matrices=False)[-1]
-    rank = min(tlsq_rank, V.shape[0])
-    VV = V[:rank, :].conj().T.dot(V[:rank, :])
+    if not isinstance(X, (np.ndarray, jnp.ndarray)) or not isinstance(
+        Y, (np.ndarray, jnp.ndarray)
+    ):
+        msg = f"Unsupported parameter type(s). Provided: {type(X)}, {type(Y)}!"
+        raise TypeError(msg)
 
+    if isinstance(X, np.ndarray) and isinstance(Y, jnp.ndarray):
+        X = jnp.array(X)
+    elif isinstance(X, jnp.ndarray) and isinstance(Y, np.ndarray):
+        Y = jnp.array(Y)
+
+    if isinstance(X, np.ndarray) and isinstance(Y, np.ndarray):
+        append_op = np.append
+        svd_op = np.linalg.svd
+
+    elif isinstance(X, jnp.ndarray) and isinstance(Y, jnp.ndarray):
+        append_op = jnp.append
+        svd_op = jnp.linalg.svd
+
+    V = svd_op(append_op(X, Y, axis=0), full_matrices=False)[-1]
+
+    if isinstance(V, np.ndarray):
+        rank = min(tlsq_rank, V.shape[0])
+    elif isinstance(V, jnp.ndarray):
+        rank = jnp.minimum(tlsq_rank, V.shape[0])
+
+    VV = V[:rank, :].conj().T.dot(V[:rank, :])
     return TLSQ(X.dot(VV), Y.dot(VV))
 
 
 def compute_svd(
-    X: np.ndarray, svd_rank: Number = 0
+    X: np.ndarray | jnp.ndarray, svd_rank: Number = 0
 ) -> NamedTuple(
-    "SVD", [("U", np.ndarray), ("s", np.ndarray), ("V", np.ndarray)]
+    "SVD",
+    [
+        ("U", np.ndarray | jnp.ndarray),
+        ("s", np.ndarray | jnp.ndarray),
+        ("V", np.ndarray | jnp.ndarray),
+    ],
 ):
     """
     Truncated Singular Value Decomposition.
 
     :param X: the matrix to decompose.
-    :type X: np.ndarray
+    :type X: np.ndarray | jnp.ndarray
     :param svd_rank: the rank for the truncation; If 0, the method computes
         the optimal rank and uses it for truncation; if positive interger,
         the method uses the argument for the truncation; if float between 0
@@ -169,6 +246,7 @@ def compute_svd(
         are needed to reach the 'energy' specified by `svd_rank`; if -1,
         the method does not compute truncation. Default is 0.
     :type svd_rank: int or float
+    :raises TypeError: If `X` is not a np.ndarray or jnp.ndarray
     :return: the truncated left-singular vectors matrix, the truncated
         singular values array, the truncated right-singular vectors matrix.
     :rtype: NamedTuple("SVD", [('U', np.ndarray),
@@ -180,7 +258,14 @@ def compute_svd(
     singular values is, IEEE Transactions on Information Theory 60.8
     (2014): 5040-5053.
     """
-    U, s, V = np.linalg.svd(X, full_matrices=False)
+    if isinstance(X, np.ndarray):
+        U, s, V = np.linalg.svd(X, full_matrices=False)
+    elif isinstance(X, jnp.ndarray):
+        U, s, V = jnp.linalg.svd(X, full_matrices=False)
+    else:
+        msg = f"Unsupported type. Provided {type(X)}!"
+        raise TypeError(msg)
+
     rank = _compute_rank(s, X.shape[0], X.shape[1], svd_rank)
     V = V.conj().T
 
@@ -196,7 +281,7 @@ def compute_rqb(
     svd_rank: Number,
     oversampling: int,
     power_iters: int,
-    test_matrix: np.ndarray = None,
+    test_matrix: np.ndarray | None = None,
     seed: int = None,
 ) -> NamedTuple(
     "RQB", [("Q", np.ndarray), ("B", np.ndarray), ("test_matrix", np.ndarray)]

@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib",
     "scikit-learn",
     "xarray",
+    "jax",
     "h5netcdf",
 ]
 readme = "README.md"
