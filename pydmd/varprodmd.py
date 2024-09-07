@@ -82,7 +82,8 @@ class _OptimizeHelper:  # pylint: disable=too-few-public-methods
     Helper Class to store intermediate results during the optimization.
     """
 
-    __slots__ = ["phi", "phi_inv", "u_svd", "s_inv", "v_svd", "b_matrix", "rho"]
+    __slots__ = ["phi", "phi_inv", "u_svd",
+                 "s_inv", "v_svd", "b_matrix", "rho"]
 
     def __init__(self, l_in: int, m_in: int, n_in: int):
         self.phi = np.empty((m_in, l_in), dtype=np.complex128)
@@ -123,7 +124,7 @@ def _compute_dmd_rho(
 
     _alphas = np.zeros((alphas.shape[-1] // 2,), dtype=np.complex128)
     _alphas.real = alphas[: alphas.shape[-1] // 2]
-    _alphas.imag = alphas[alphas.shape[-1] // 2 :]
+    _alphas.imag = alphas[alphas.shape[-1] // 2:]
 
     phi = np.exp(np.outer(time, _alphas))
     u_phi, s_phi, v_phi_t = np.linalg.svd(phi, full_matrices=False)
@@ -135,7 +136,7 @@ def _compute_dmd_rho(
     rho_flat = np.ravel(rho)
     rho_out = np.zeros((2 * rho_flat.shape[-1],), dtype=np.float64)
     rho_out[: rho_flat.shape[-1]] = rho_flat.real
-    rho_out[rho_flat.shape[-1] :] = rho_flat.imag
+    rho_out[rho_flat.shape[-1]:] = rho_flat.imag
 
     opthelper.phi = phi
     opthelper.u_svd = u_phi
@@ -182,7 +183,7 @@ def _compute_dmd_jac(
 
     _alphas = np.zeros((alphas.shape[-1] // 2,), dtype=np.complex128)
     _alphas.real = alphas[: alphas.shape[-1] // 2]
-    _alphas.imag = alphas[alphas.shape[-1] // 2 :]
+    _alphas.imag = alphas[alphas.shape[-1] // 2:]
     jac_out = np.zeros((2 * np.prod(data.shape), alphas.shape[-1]))
 
     for j in range(_alphas.shape[-1]):
@@ -209,11 +210,12 @@ def _compute_dmd_jac(
 
         # construct real part for optimization
         jac_out[: jac_out.shape[0] // 2, j] = jac_flat.real
-        jac_out[jac_out.shape[0] // 2 :, j] = jac_flat.imag
+        jac_out[jac_out.shape[0] // 2:, j] = jac_flat.imag
 
         # construct imaginary part for optimization
-        jac_out[: jac_out.shape[0] // 2, _alphas.shape[-1] + j] = -jac_flat.imag
-        jac_out[jac_out.shape[0] // 2 :, _alphas.shape[-1] + j] = jac_flat.real
+        jac_out[: jac_out.shape[0] // 2,
+                _alphas.shape[-1] + j] = -jac_flat.imag
+        jac_out[jac_out.shape[0] // 2:, _alphas.shape[-1] + j] = jac_flat.real
 
     return jac_out
 
@@ -318,7 +320,7 @@ def select_best_samples_fast(data: np.ndarray, comp: float = 0.9) -> np.ndarray:
     :rtype: np.ndarray
     """
 
-    if len(data.shape) != 2:
+    if data.ndim != 2:
         raise ValueError("Expected 2D array!")
 
     if not 0 < comp < 1:
@@ -337,6 +339,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
     rank: Union[float, int] = 0.0,
     use_proj: bool = True,
     compression: float = 0,
+    omegas_init: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, OptimizeResult]:
     r"""
     Compute DMD given arbitary timesteps.
@@ -367,6 +370,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
         2d array.
     :raises ValueError: ValueError is raised if time is not a
         1d array.
+    :raises ValueError: If `omegas_init` is set but it is not a 1d array.
     :return: DMD modes :math:`\boldsymbol{\Phi}`, continuous DMD eigenvalues
         :math: `\boldsymbol{\Omega}` as 1d array,
         DMD eigenfunctions or amplitudes :math:`\boldsymbol{\varphi}`,
@@ -378,15 +382,23 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
                   OptimizeResult]
     """
 
-    if len(data.shape) != 2:
-        raise ValueError("data needs to be 2D array")
+    if data.ndim != 2:
+        msg = "data needs to be 2D array"
+        raise ValueError(msg)
 
-    if len(time.shape) != 1:
-        raise ValueError("time needs to be a 1D array")
+    if time.ndim != 1:
+        msg = "time needs to be a 1D array"
+        raise ValueError(msg)
 
     #  y_in, z_in, data_in, u_r
     res = _varpro_preprocessing(data, time, rank, use_proj)
-    omegas = _compute_dmd_ev(res[0], res[1], res[-1].shape[-1])
+    if omegas_init is not None:
+        if omegas_init.ndim != 1:
+            msg = "Expected 1D array!"
+            raise ValueError(msg)
+        omegas = omegas_init
+    else:
+        omegas = _compute_dmd_ev(res[0], res[1], res[-1].shape[-1])
 
     if compression > 0:
         indices = select_best_samples_fast(res[2], compression)
@@ -416,9 +428,15 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
         **optargs,
     )
     omegas.real = opt.x[: opt.x.shape[-1] // 2]
-    omegas.imag = opt.x[opt.x.shape[-1] // 2 :]
+    omegas.imag = opt.x[opt.x.shape[-1] // 2:]
     xi = res[-1] @ opthelper.b_matrix.T if use_proj else opthelper.b_matrix.T
     eigenf = np.linalg.norm(xi, axis=0)
+
+    # remove zero amplitudes to avoid zero-division errors
+    idx = np.where(eigenf > 0.0)[0]
+    eigenf = eigenf[idx]
+    xi = xi[:, idx]
+    omegas = omegas[idx]
     return xi / eigenf[None], omegas, eigenf, indices, opt
 
 
@@ -464,6 +482,7 @@ class VarProOperator(DMDOperator):
         sorted_eigs: Union[bool, str],
         compression: float,
         optargs: Dict[str, Any],
+        omegas_init: np.ndarray | None = None,
     ):
         r"""
         VarProOperator constructor.
@@ -515,6 +534,9 @@ class VarProOperator(DMDOperator):
         :param optargs: Arguments for 'least_squares' optimizer.
             Use `OPT_DEF_ARGS` as starting point.
         :type optargs: Dict[str, Any]
+        :param omega_init: Initial estimate of cont. eigenvalues.
+            If `omegas_init=None`, an initial estimate of the eigenvalues is calculated.
+        :type omegas_init: np.ndarray, optional
         """
 
         super().__init__(svd_rank, exact, False, None, sorted_eigs, False)
@@ -524,7 +546,7 @@ class VarProOperator(DMDOperator):
         self._optargs: Dict[str, Any] = optargs
         self._compression: float = compression
         self._modes: np.ndarray = None
-        self._eigenvalues: np.ndarray = None
+        self._eigenvalues: np.ndarray = omegas_init
 
     def compute_operator(
         self, X: np.ndarray, Y: np.ndarray
@@ -562,6 +584,7 @@ class VarProOperator(DMDOperator):
             self._svd_rank,
             not self._exact,
             self._compression,
+            omegas_init=self._eigenvalues,
         )
 
         # overwrite for lazy sorting
@@ -614,7 +637,8 @@ class VarProDMD(DMDBase):
         exact: bool = False,
         sorted_eigs: Union[bool, str] = False,
         compression: float = 0.0,
-        optargs: Dict[str, Any] = None,
+        optargs: Dict[str, Any] | None = None,
+        omegas_init: np.ndarray | None = None,
     ):
         r"""
         VarProDMD constructor.
@@ -668,6 +692,9 @@ class VarProDMD(DMDBase):
             If set to None, `OPT_DEF_ARGS` are used as default parameters.
             Defaults to None.
         :type optargs: Dict[str, Any], optional
+        :param omegas_init: Initial estimate of (complex) eigenvalues. If set to None,
+            an initial estimate is calculated.
+        :type omegas_init: np.ndarray, optional
         """
 
         # super constructor not called
@@ -678,7 +705,12 @@ class VarProDMD(DMDBase):
             optargs = OPT_DEF_ARGS
 
         self._Atilde = VarProOperator(
-            svd_rank, exact, sorted_eigs, compression, optargs
+            svd_rank,
+            exact,
+            sorted_eigs,
+            compression,
+            optargs,
+            omegas_init=omegas_init,
         )
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
@@ -748,7 +780,7 @@ class VarProDMD(DMDBase):
             (rho_flat_real.size // 2,), dtype=np.complex128
         )
         rho_flat_imag.real = rho_flat_real[: rho_flat_real.size // 2]
-        rho_flat_imag.imag = rho_flat_real[rho_flat_real.size // 2 :]
+        rho_flat_imag.imag = rho_flat_real[rho_flat_real.size // 2:]
 
         sigma = np.linalg.norm(rho_flat_imag)
         denom = max(
