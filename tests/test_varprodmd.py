@@ -2,6 +2,7 @@
 Test module for VarProDMD
 """
 
+from __future__ import annotations
 import numpy as np
 import pytest
 
@@ -10,11 +11,13 @@ from pydmd.varprodmd import (
     OPT_DEF_ARGS,
     _compute_dmd_jac,
     _compute_dmd_rho,
+    _assing_bounds,
     _OptimizeHelper,
     compute_varprodmd_any,
     varprodmd_predict,
     select_best_samples_fast,
 )
+from scipy.optimize import Bounds
 
 
 def signal(x_loc: np.ndarray, time: np.ndarray) -> np.ndarray:
@@ -32,7 +35,194 @@ def signal(x_loc: np.ndarray, time: np.ndarray) -> np.ndarray:
     return f_1 + f_2
 
 
-def test_varprodmd_rho():
+def test_assign_bounds() -> None:
+    """Test boundary assignment to corresponding cont. complex eigenvalues"""
+    eigs = np.zeros((4,), dtype=np.complex128)
+    eigs.real[0] = 1.0
+    eigs.imag[1] = 1.0
+    eigs.real[2] = 1.0
+    eigs.imag[2] = 1.0
+    eigs.real[3] = -1.0
+    eigs.imag[3] = 1.0
+
+    rl = np.zeros((4,))
+    ru = np.zeros_like(rl)
+    il = np.zeros_like(rl)
+    iu = np.zeros_like(rl)
+
+    # setup bounds in reverse order
+    rl[0] = -1.5
+    rl[1] = 0.5
+    rl[2] = -0.5
+    rl[3] = 0.5
+
+    ru[0] = -0.5
+    ru[1] = 1.5
+    ru[2] = 0.5
+    ru[3] = 1.5
+
+    il[0] = 0.5
+    il[1] = 0.5
+    il[2] = 0.5
+    il[3] = -0.5
+
+    iu[0] = 1.5
+    iu[1] = 1.5
+    iu[2] = 1.5
+    iu[3] = 0.5
+
+    # expected inverted order
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, (rl, ru), (il, iu)
+    )
+    assert unassigned_eigs.size == 0
+    assert unassigned_bounds.size == 0
+
+    for i in range(eigs.shape[0]):
+        assert bound_idx[i] == 3 - i
+
+    rl[0] = 0.5
+    rl[1] = 0
+    rl[2] = 0.5
+    rl[3] = -1.0
+
+    ru[0] = 1.5
+    ru[1] = 0.5
+    ru[2] = 1.5
+    ru[3] = 0.5
+
+    il[0] = -0.5
+    il[1] = 0.5
+    il[2] = 0.5
+    il[3] = 0.5
+
+    iu[0] = 0.5
+    iu[1] = 1.5
+    iu[2] = 1.5
+    iu[3] = 1.5
+
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, (rl, ru), (il, iu)
+    )
+    assert unassigned_eigs.size == 0
+    assert unassigned_bounds.size == 0
+
+    for i in range(eigs.shape[0]):
+        assert bound_idx[i] == i
+
+    # enforce special case where real parts constraint collapses to equality constraint
+
+    rl[1] = 0
+    ru[1] = 0
+
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, (rl, ru), (il, iu)
+    )
+    assert unassigned_eigs.size == 0
+    assert unassigned_bounds.size == 0
+
+    for i in range(eigs.shape[0]):
+        assert bound_idx[i] == i
+
+    # enforce out of bound scenario -> first boundary constraint must be violated
+    iu[0] = -0.5
+    il[0] = -1.5
+
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, (rl, ru), (il, iu)
+    )
+
+    assert unassigned_eigs.size == 1
+    assert unassigned_bounds.size == 1
+
+    assert unassigned_eigs[0] == 0
+    assert unassigned_bounds[0] == 0
+
+    for i in range(eigs.shape[0] - 1):
+        assert bound_idx[i] == i + 1
+
+    # test for Bounds object
+    rl[0] = 0.5
+    rl[1] = 0
+    rl[2] = 0.5
+    rl[3] = -1.0
+
+    ru[0] = 1.5
+    ru[1] = 0.5
+    ru[2] = 1.5
+    ru[3] = 0.5
+
+    il[0] = -0.5
+    il[1] = 0.5
+    il[2] = 0.5
+    il[3] = 0.5
+
+    iu[0] = 0.5
+    iu[1] = 1.5
+    iu[2] = 1.5
+    iu[3] = 1.5
+
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, Bounds(rl, ru), Bounds(il, iu)
+    )
+
+    assert unassigned_eigs.size == 0
+    assert unassigned_bounds.size == 0
+    for i in range(eigs.shape[0]):
+        assert bound_idx[i] == i
+
+    # enforce out of bound scenario -> first boundary constraint must be violated
+    iu[0] = -0.5
+    il[0] = -1.5
+
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, Bounds(rl, ru), Bounds(il, iu)
+    )
+
+    assert unassigned_eigs[0] == 0
+    assert unassigned_bounds[0] == 0
+
+    for i in range(eigs.shape[0] - 1):
+        assert bound_idx[i] == i + 1
+
+    # test for mixture tuple or Bounds
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, (rl, ru), Bounds(il, iu)
+    )
+
+    assert unassigned_eigs[0] == 0
+    assert unassigned_bounds[0] == 0
+
+    for i in range(eigs.shape[0] - 1):
+        assert bound_idx[i] == i + 1
+
+    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+        eigs, Bounds(rl, ru), (il, iu)
+    )
+
+    assert unassigned_eigs[0] == 0
+    assert unassigned_bounds[0] == 0
+
+    for i in range(eigs.shape[0] - 1):
+        assert bound_idx[i] == i + 1
+
+    with pytest.raises(
+        ValueError, match="Invalid type for real- or imaginary bound!"
+    ):
+        _assing_bounds(eigs, [rl, ru], (il, iu))
+
+    with pytest.raises(
+        ValueError, match="Invalid type for real- or imaginary bound!"
+    ):
+        _assing_bounds(eigs, (rl, ru), [il, iu])
+
+    with pytest.raises(
+        ValueError, match="Invalid type for real- or imaginary bound!"
+    ):
+        _assing_bounds(eigs, [rl, ru], [il, iu])
+
+
+def test_varprodmd_rho() -> None:
     """
     Unit test for residual vector :math: `\boldsymbol{\rho}`.
     """
@@ -52,7 +242,7 @@ def test_varprodmd_rho():
     res_flat = np.ravel(res)
     res_flat_reals = np.zeros((2 * res_flat.shape[-1]))
     res_flat_reals[: res_flat_reals.shape[-1] // 2] = res_flat.real
-    res_flat_reals[res_flat_reals.shape[-1] // 2:] = res_flat.imag
+    res_flat_reals[res_flat_reals.shape[-1] // 2 :] = res_flat.imag
     opthelper = _OptimizeHelper(2, *data.shape)
     rho_flat_out = _compute_dmd_rho(alphas_in, time, data, opthelper)
 
@@ -63,7 +253,9 @@ def test_varprodmd_rho():
     assert np.array_equal(phi, opthelper.phi)
 
 
-def test_varprodmd_jac():  # pylint: disable=too-many-locals,too-many-statements
+def test_varprodmd_jac() -> (
+    None
+):  # pylint: disable=too-many-locals,too-many-statements
     """
     Test Jacobian computation (real vs. complex).
     """
@@ -77,8 +269,7 @@ def test_varprodmd_jac():  # pylint: disable=too-many-locals,too-many-statements
     d_phi_1[:, 0] = time * phi[:, 0]
     d_phi_2[:, 1] = time * phi[:, 1]
 
-    U_svd, s_svd, __v = np.linalg.svd(
-        phi, hermitian=False, full_matrices=False)
+    U_svd, s_svd, __v = np.linalg.svd(phi, hermitian=False, full_matrices=False)
     idx = np.where(s_svd.real != 0.0)[0]
     s_inv = np.zeros_like(s_svd)
     s_inv[idx] = np.reciprocal(s_svd[idx])
@@ -95,7 +286,7 @@ def test_varprodmd_jac():  # pylint: disable=too-many-locals,too-many-statements
     rho_flat = np.ravel(opthelper.rho)
     rho_real = np.zeros((2 * rho_flat.shape[0]))
     rho_real[: rho_flat.shape[0]] = rho_flat.real
-    rho_real[rho_flat.shape[0]:] = rho_flat.imag
+    rho_real[rho_flat.shape[0] :] = rho_flat.imag
     A_1 = d_phi_1 @ opthelper.b_matrix - np.linalg.multi_dot(
         [U_svd, U_svd.conj().T, d_phi_1, opthelper.b_matrix]
     )
@@ -119,13 +310,13 @@ def test_varprodmd_jac():  # pylint: disable=too-many-locals,too-many-statements
     JAC_IMAG[:, 1] = J_2_flat
     JAC_REAL = np.zeros((2 * J_1_flat.shape[-1], 4), dtype=np.float64)
     JAC_REAL[: J_1_flat.shape[-1], 0] = J_1_flat.real
-    JAC_REAL[J_1_flat.shape[-1]:, 0] = J_1_flat.imag
+    JAC_REAL[J_1_flat.shape[-1] :, 0] = J_1_flat.imag
     JAC_REAL[: J_2_flat.shape[-1], 1] = J_2_flat.real
-    JAC_REAL[J_2_flat.shape[-1]:, 1] = J_2_flat.imag
+    JAC_REAL[J_2_flat.shape[-1] :, 1] = J_2_flat.imag
     JAC_REAL[: J_1_flat.shape[-1], 2] = -J_1_flat.imag
-    JAC_REAL[J_1_flat.shape[-1]:, 2] = J_1_flat.real
+    JAC_REAL[J_1_flat.shape[-1] :, 2] = J_1_flat.real
     JAC_REAL[: J_2_flat.shape[-1], 3] = -J_2_flat.imag
-    JAC_REAL[J_2_flat.shape[-1]:, 3] = J_2_flat.real
+    JAC_REAL[J_2_flat.shape[-1] :, 3] = J_2_flat.real
     JAC_OUT_REAL = _compute_dmd_jac(alphas_in, time, data, opthelper)
 
     GRAD_REAL = JAC_REAL.T @ rho_real
@@ -137,11 +328,11 @@ def test_varprodmd_jac():  # pylint: disable=too-many-locals,too-many-statements
 
     imag2real = np.zeros_like(GRAD_REAL)
     imag2real[: imag2real.shape[-1] // 2] = GRAD_IMAG.real
-    imag2real[imag2real.shape[-1] // 2:] = GRAD_IMAG.imag
+    imag2real[imag2real.shape[-1] // 2 :] = GRAD_IMAG.imag
 
     rec_grad = np.zeros_like(GRAD_IMAG)
     rec_grad.real = GRAD_REAL[: GRAD_REAL.shape[-1] // 2]
-    rec_grad.imag = GRAD_REAL[GRAD_REAL.shape[-1] // 2:]
+    rec_grad.imag = GRAD_REAL[GRAD_REAL.shape[-1] // 2 :]
 
     # funny numerical errors leads to
     # np.array_equal(GRAD_IMAG, __rec_grad) to fail
@@ -149,14 +340,14 @@ def test_varprodmd_jac():  # pylint: disable=too-many-locals,too-many-statements
 
     rec_grad = np.zeros_like(GRAD_IMAG)
     rec_grad.real = GRAD_OUT_REAL[: GRAD_OUT_REAL.shape[-1] // 2]
-    rec_grad.imag = GRAD_OUT_REAL[GRAD_OUT_REAL.shape[-1] // 2:]
+    rec_grad.imag = GRAD_OUT_REAL[GRAD_OUT_REAL.shape[-1] // 2 :]
 
     # funny numerical errors leads to
     # np.array_equal(GRAD_IMAG, __rec_grad) to fail
     assert np.linalg.norm(GRAD_IMAG - rec_grad) < 1e-9
 
 
-def test_varprodmd_any():
+def test_varprodmd_any() -> None:
     """
     Test Variable Projection function for DMD (at any timestep).
     """
@@ -195,7 +386,12 @@ def test_varprodmd_any():
 
     # reuse estimate of initial eigenvalues
     phi, lambdas, eigenf, _, _ = compute_varprodmd_any(
-        z_sub, t_sub, OPT_DEF_ARGS, rank=0.0, use_proj=False, omegas_init=lambdas
+        z_sub,
+        t_sub,
+        OPT_DEF_ARGS,
+        rank=0.0,
+        use_proj=False,
+        omegas_init=lambdas,
     )
     pred = varprodmd_predict(phi, lambdas, eigenf, time)
     diff = np.abs(pred - z)
@@ -204,7 +400,7 @@ def test_varprodmd_any():
     assert mae < 1.0
 
 
-def test_varprodmd_class():
+def test_varprodmd_class() -> None:
     """
     Test VarProDMD class.
     """

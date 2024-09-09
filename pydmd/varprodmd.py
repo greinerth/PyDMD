@@ -22,7 +22,7 @@ from typing import Any, Dict, Tuple, Union
 
 import numpy as np
 from scipy.linalg import qr
-from scipy.optimize import OptimizeResult, least_squares
+from scipy.optimize import OptimizeResult, Bounds, least_squares
 
 from .dmd import DMDBase
 from .dmdoperator import DMDOperator
@@ -40,6 +40,70 @@ OPT_DEF_ARGS = MappingProxyType(
         "ftol": 1e-8,
     }
 )
+
+
+def _assing_bounds(
+    omegas: np.ndarray,
+    real_bound: tuple[np.ndarray, np.ndarray] | Bounds,
+    imag_bound: tuple[np.ndarray, np.ndarray] | Bounds,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""Match real- and imaginary bounds to estimate of cont. eigenvalues :math:`\boldsymbol{\omega}`.
+
+    :param omegas: Cont. eigenvalues :math:`\boldsymbol{\omega}`
+    :type omegas: np.ndarray
+    :param real_bound: Upper- and lower bounds of real part of cont. eigenvalues.
+    :type real_bound: tuple[np.ndarray, np.ndarray] | Bounds
+    :param imag_bound: Upper- and lower bounds of imaginary part of cont. eigenvalues.
+    :type imag_bound: tuple[np.ndarray, np.ndarray] | Bounds
+    :raises ValueError: If `real_bound` pr `imag_bound` is not of type tuple or Bounds.
+    :return: Indices of assigned bounds, indices of unassigned cont. eigenvalues and indices of unassigned bounds.
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
+    """
+    ok = True
+    if isinstance(real_bound, tuple):
+        lbreal, ubreal = real_bound
+    elif isinstance(real_bound, Bounds):
+        lbreal, ubreal = real_bound.lb, real_bound.ub
+    else:
+        ok = False
+
+    if isinstance(imag_bound, tuple):
+        lbimag, ubimag = imag_bound
+    elif isinstance(imag_bound, Bounds):
+        lbimag, ubimag = imag_bound.lb, imag_bound.ub
+    else:
+        ok = False
+
+    if not ok:
+        msg = "Invalid type for real- or imaginary bound!"
+        raise ValueError(msg)
+
+    areas = np.abs((ubreal - lbreal) * (ubimag - lbimag))
+    assigned_box = np.zeros(omegas.shape[0], dtype=bool)
+    assigned_omegas = np.zeros_like(assigned_box)
+    assigned_idx = []
+
+    for i in range(omegas.shape[0]):
+        unassigned = np.where(~assigned_box)[0]
+        msk = (omegas.real[i] >= lbreal[unassigned]) & (
+            omegas.real[i] <= ubreal[unassigned]
+        )
+        msk &= (omegas.imag[i] >= lbimag[unassigned]) & (
+            omegas.imag[i] <= ubimag[unassigned]
+        )
+        boxidx = unassigned[msk]
+        if boxidx.size != 0:
+            areaidx = np.argsort(areas[boxidx])
+            matchidx = boxidx[areaidx[0]]
+            assigned_idx.append(matchidx)
+            assigned_box[matchidx] = True
+            assigned_omegas[i] = True
+
+    return (
+        np.array(assigned_idx),
+        np.where(~assigned_omegas)[0],
+        np.where(~assigned_box)[0],
+    )
 
 
 def _compute_dmd_ev(
@@ -82,8 +146,7 @@ class _OptimizeHelper:  # pylint: disable=too-few-public-methods
     Helper Class to store intermediate results during the optimization.
     """
 
-    __slots__ = ["phi", "phi_inv", "u_svd",
-                 "s_inv", "v_svd", "b_matrix", "rho"]
+    __slots__ = ["phi", "phi_inv", "u_svd", "s_inv", "v_svd", "b_matrix", "rho"]
 
     def __init__(self, l_in: int, m_in: int, n_in: int):
         self.phi = np.empty((m_in, l_in), dtype=np.complex128)
@@ -124,7 +187,7 @@ def _compute_dmd_rho(
 
     _alphas = np.zeros((alphas.shape[-1] // 2,), dtype=np.complex128)
     _alphas.real = alphas[: alphas.shape[-1] // 2]
-    _alphas.imag = alphas[alphas.shape[-1] // 2:]
+    _alphas.imag = alphas[alphas.shape[-1] // 2 :]
 
     phi = np.exp(np.outer(time, _alphas))
     u_phi, s_phi, v_phi_t = np.linalg.svd(phi, full_matrices=False)
@@ -136,7 +199,7 @@ def _compute_dmd_rho(
     rho_flat = np.ravel(rho)
     rho_out = np.zeros((2 * rho_flat.shape[-1],), dtype=np.float64)
     rho_out[: rho_flat.shape[-1]] = rho_flat.real
-    rho_out[rho_flat.shape[-1]:] = rho_flat.imag
+    rho_out[rho_flat.shape[-1] :] = rho_flat.imag
 
     opthelper.phi = phi
     opthelper.u_svd = u_phi
@@ -183,7 +246,7 @@ def _compute_dmd_jac(
 
     _alphas = np.zeros((alphas.shape[-1] // 2,), dtype=np.complex128)
     _alphas.real = alphas[: alphas.shape[-1] // 2]
-    _alphas.imag = alphas[alphas.shape[-1] // 2:]
+    _alphas.imag = alphas[alphas.shape[-1] // 2 :]
     jac_out = np.zeros((2 * np.prod(data.shape), alphas.shape[-1]))
 
     for j in range(_alphas.shape[-1]):
@@ -210,12 +273,11 @@ def _compute_dmd_jac(
 
         # construct real part for optimization
         jac_out[: jac_out.shape[0] // 2, j] = jac_flat.real
-        jac_out[jac_out.shape[0] // 2:, j] = jac_flat.imag
+        jac_out[jac_out.shape[0] // 2 :, j] = jac_flat.imag
 
         # construct imaginary part for optimization
-        jac_out[: jac_out.shape[0] // 2,
-                _alphas.shape[-1] + j] = -jac_flat.imag
-        jac_out[jac_out.shape[0] // 2:, _alphas.shape[-1] + j] = jac_flat.real
+        jac_out[: jac_out.shape[0] // 2, _alphas.shape[-1] + j] = -jac_flat.imag
+        jac_out[jac_out.shape[0] // 2 :, _alphas.shape[-1] + j] = jac_flat.real
 
     return jac_out
 
@@ -428,7 +490,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
         **optargs,
     )
     omegas.real = opt.x[: opt.x.shape[-1] // 2]
-    omegas.imag = opt.x[opt.x.shape[-1] // 2:]
+    omegas.imag = opt.x[opt.x.shape[-1] // 2 :]
     xi = res[-1] @ opthelper.b_matrix.T if use_proj else opthelper.b_matrix.T
     eigenf = np.linalg.norm(xi, axis=0)
 
@@ -780,7 +842,7 @@ class VarProDMD(DMDBase):
             (rho_flat_real.size // 2,), dtype=np.complex128
         )
         rho_flat_imag.real = rho_flat_real[: rho_flat_real.size // 2]
-        rho_flat_imag.imag = rho_flat_real[rho_flat_real.size // 2:]
+        rho_flat_imag.imag = rho_flat_real[rho_flat_real.size // 2 :]
 
         sigma = np.linalg.norm(rho_flat_imag)
         denom = max(
