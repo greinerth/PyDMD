@@ -16,6 +16,7 @@ Default optimizer arguments:
         "ftol": 1e-8}
 """
 
+from __future__ import annotations
 import warnings
 from types import MappingProxyType
 from typing import Any, Dict, Tuple, Union
@@ -42,10 +43,10 @@ OPT_DEF_ARGS = MappingProxyType(
 )
 
 
-def _assing_bounds(
+def _assign_bounds(
     omegas: np.ndarray,
-    real_bound: tuple[np.ndarray, np.ndarray] | Bounds,
-    imag_bound: tuple[np.ndarray, np.ndarray] | Bounds,
+    real_bound: tuple[np.ndarray, np.ndarray],
+    imag_bound: tuple[np.ndarray, np.ndarray],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Match real- and imaginary bounds to estimate of cont. eigenvalues :math:`\boldsymbol{\omega}`.
 
@@ -56,8 +57,65 @@ def _assing_bounds(
     :param imag_bound: Upper- and lower bounds of imaginary part of cont. eigenvalues.
     :type imag_bound: tuple[np.ndarray, np.ndarray] | Bounds
     :raises ValueError: If `real_bound` pr `imag_bound` is not of type tuple or Bounds.
-    :return: Indices of assigned bounds, indices of unassigned cont. eigenvalues and indices of unassigned bounds.
+    :return: Indices of assigned bounds, indices of assigned cont. eigenvalues and indices of unassigned bounds.
     :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
+    """
+
+    lbreal, ubreal = real_bound
+    lbimag, ubimag = imag_bound
+
+    areas = np.abs((ubreal - lbreal) * (ubimag - lbimag))
+    assigned_box = np.zeros(omegas.shape[0], dtype=bool)
+    assigned_omegas = np.zeros_like(assigned_box)
+    mapping = []
+
+    for i in range(omegas.shape[0]):
+        unassigned = np.where(~assigned_box)[0]
+        msk = (omegas.real[i] >= lbreal[unassigned]) & (
+            omegas.real[i] <= ubreal[unassigned]
+        )
+        msk &= (omegas.imag[i] >= lbimag[unassigned]) & (
+            omegas.imag[i] <= ubimag[unassigned]
+        )
+        boxidx = unassigned[msk]
+        if boxidx.size != 0:
+            areaidx = np.argsort(areas[boxidx])
+            matchidx = boxidx[areaidx[0]]
+            mapping.append(matchidx)
+            assigned_box[matchidx] = True
+            assigned_omegas[i] = True
+
+    return (
+        np.array(mapping),
+        np.where(assigned_omegas)[0],
+        np.where(~assigned_box)[0],
+    )
+
+
+def _check_eigs_constraints(
+    omegas: np.ndarray,
+    real_bound: tuple[np.ndarray, np.ndarray] | Bounds,
+    imag_bound: tuple[np.ndarray, np.ndarray] | Bounds,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    r"""Check eigenvalues :math:`\boldsymbol{\omega}` for specified constraints.
+       The eigenvalues are sorted according to boundary constraints iff a matching condition is found.
+       In case the constraints are violated, a random number is used for real- and imaginary parts of the
+       eigenvalue box constraints.
+
+    :param omegas: 1D array of cont. eigenvalues :math:`\boldsymbol{\omega}`
+    :type omegas: np.ndarray
+    :param real_bound: Real part of box constraint s.t. :math:`l_r^{\left(k\right)} \leq \boldsymbol{\omega}_r^{\left(k\right)} \leq u_r^{\left(k\right)}`
+    :type real_bound: tuple[np.ndarray, np.ndarray] | Bounds
+    :param imag_bound: Imaginary part of box constraint s.t. :math:`l_i^{\left(k\right)} \leq \boldsymbol{\omega}_i^{\left(k\right)} \leq u_i^{\left(k\right)}`
+    :type imag_bound: tuple[np.ndarray, np.ndarray] | Bounds
+    :param rng: Numpy random number generator, defaults to None
+    :type rng: np.random.Generator | None, optional
+    :raises ValueError: If `real_bound` or `imag_bound` is not of type tuple or Bounds
+    :raises ValueError: If `real_bound` or `imag_bound` do not contain 1D arrays for lower- and upper bounds
+    :raises ValueError: If shapes of lower- and upper bounds of `real_bound` and `imag_bound` are inconsistent
+    :return: Sorted eigenvalues according to box constraints. If the constraints are violated, random parameters are chosen.
+    :rtype: np.ndarray
     """
     ok = True
     if isinstance(real_bound, tuple):
@@ -78,32 +136,46 @@ def _assing_bounds(
         msg = "Invalid type for real- or imaginary bound!"
         raise ValueError(msg)
 
-    areas = np.abs((ubreal - lbreal) * (ubimag - lbimag))
-    assigned_box = np.zeros(omegas.shape[0], dtype=bool)
-    assigned_omegas = np.zeros_like(assigned_box)
-    assigned_idx = []
+    if (
+        lbreal.ndim != 1
+        or ubreal.ndim != 1
+        or lbimag.ndim != 1
+        or ubimag.ndim != 1
+    ):
+        msg = "Expected 1D arrays for lower- and upper bounds!"
+        raise ValueError(msg)
 
-    for i in range(omegas.shape[0]):
-        unassigned = np.where(~assigned_box)[0]
-        msk = (omegas.real[i] >= lbreal[unassigned]) & (
-            omegas.real[i] <= ubreal[unassigned]
-        )
-        msk &= (omegas.imag[i] >= lbimag[unassigned]) & (
-            omegas.imag[i] <= ubimag[unassigned]
-        )
-        boxidx = unassigned[msk]
-        if boxidx.size != 0:
-            areaidx = np.argsort(areas[boxidx])
-            matchidx = boxidx[areaidx[0]]
-            assigned_idx.append(matchidx)
-            assigned_box[matchidx] = True
-            assigned_omegas[i] = True
+    # ensure that are all boundary conditions have the same shape
+    shapes_ok = True
+    shapes_ok &= lbreal.shape[0] == omegas.shape[0]
+    shapes_ok &= ubreal.shape[0] == omegas.shape[0]
+    shapes_ok &= lbimag.shape[0] == omegas.shape[0]
+    shapes_ok &= ubimag.shape[0] == omegas.shape[0]
 
-    return (
-        np.array(assigned_idx),
-        np.where(~assigned_omegas)[0],
-        np.where(~assigned_box)[0],
+    if not shapes_ok:
+        msg = "Box constraint sizes are inconsistent!"
+        raise ValueError(msg)
+
+    (
+        mapping,
+        idx_assigned_eigs,
+        idx_unassigned_bounds,
+    ) = _assign_bounds(omegas, (lbreal, ubreal), (lbimag, ubimag))
+
+    _omegas = np.zeros_like(omegas)
+    _omegas[mapping] = omegas[idx_assigned_eigs]
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    _omegas.real[idx_unassigned_bounds] = rng.uniform(
+        lbreal[idx_unassigned_bounds], ubreal[idx_unassigned_bounds]
     )
+    _omegas.imag[idx_unassigned_bounds] = rng.uniform(
+        lbimag[idx_unassigned_bounds], ubimag[idx_unassigned_bounds]
+    )
+
+    return _omegas
 
 
 def _compute_dmd_ev(

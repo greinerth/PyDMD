@@ -11,7 +11,8 @@ from pydmd.varprodmd import (
     OPT_DEF_ARGS,
     _compute_dmd_jac,
     _compute_dmd_rho,
-    _assing_bounds,
+    _assign_bounds,
+    _check_eigs_constraints,
     _OptimizeHelper,
     compute_varprodmd_any,
     varprodmd_predict,
@@ -72,10 +73,10 @@ def test_assign_bounds() -> None:
     iu[3] = 0.5
 
     # expected inverted order
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+    bound_idx, assigned_eigs, unassigned_bounds = _assign_bounds(
         eigs, (rl, ru), (il, iu)
     )
-    assert unassigned_eigs.size == 0
+    assert assigned_eigs.size == 4
     assert unassigned_bounds.size == 0
 
     for i in range(eigs.shape[0]):
@@ -101,10 +102,10 @@ def test_assign_bounds() -> None:
     iu[2] = 1.5
     iu[3] = 1.5
 
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+    bound_idx, assigned_eigs, unassigned_bounds = _assign_bounds(
         eigs, (rl, ru), (il, iu)
     )
-    assert unassigned_eigs.size == 0
+    assert assigned_eigs.size == 4
     assert unassigned_bounds.size == 0
 
     for i in range(eigs.shape[0]):
@@ -115,10 +116,10 @@ def test_assign_bounds() -> None:
     rl[1] = 0
     ru[1] = 0
 
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+    bound_idx, assigned_eigs, unassigned_bounds = _assign_bounds(
         eigs, (rl, ru), (il, iu)
     )
-    assert unassigned_eigs.size == 0
+    assert assigned_eigs.size == 4
     assert unassigned_bounds.size == 0
 
     for i in range(eigs.shape[0]):
@@ -128,14 +129,13 @@ def test_assign_bounds() -> None:
     iu[0] = -0.5
     il[0] = -1.5
 
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
+    bound_idx, assigned_eigs, unassigned_bounds = _assign_bounds(
         eigs, (rl, ru), (il, iu)
     )
 
-    assert unassigned_eigs.size == 1
+    assert assigned_eigs.size == 3
     assert unassigned_bounds.size == 1
 
-    assert unassigned_eigs[0] == 0
     assert unassigned_bounds[0] == 0
 
     for i in range(eigs.shape[0] - 1):
@@ -162,11 +162,11 @@ def test_assign_bounds() -> None:
     iu[2] = 1.5
     iu[3] = 1.5
 
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
-        eigs, Bounds(rl, ru), Bounds(il, iu)
+    bound_idx, assigned_eigs, unassigned_bounds = _assign_bounds(
+        eigs, (rl, ru), (il, iu)
     )
 
-    assert unassigned_eigs.size == 0
+    assert assigned_eigs.size == 4
     assert unassigned_bounds.size == 0
     for i in range(eigs.shape[0]):
         assert bound_idx[i] == i
@@ -175,51 +175,156 @@ def test_assign_bounds() -> None:
     iu[0] = -0.5
     il[0] = -1.5
 
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
-        eigs, Bounds(rl, ru), Bounds(il, iu)
+    bound_idx, assigned_eigs, unassigned_bounds = _assign_bounds(
+        eigs, (rl, ru), (il, iu)
     )
 
-    assert unassigned_eigs[0] == 0
+    assert assigned_eigs.size == 3
     assert unassigned_bounds[0] == 0
 
     for i in range(eigs.shape[0] - 1):
         assert bound_idx[i] == i + 1
 
-    # test for mixture tuple or Bounds
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
-        eigs, (rl, ru), Bounds(il, iu)
-    )
 
-    assert unassigned_eigs[0] == 0
-    assert unassigned_bounds[0] == 0
+def test_eigs_constraints() -> None:
+    """Test eigenvalue and boundary constraints"""
+    eigs = np.zeros((4,), dtype=np.complex128)
+    eigs.real[0] = 1.0
+    eigs.imag[1] = 1.0
+    eigs.real[2] = 1.0
+    eigs.imag[2] = 1.0
+    eigs.real[3] = -1.0
+    eigs.imag[3] = 1.0
 
-    for i in range(eigs.shape[0] - 1):
-        assert bound_idx[i] == i + 1
+    rl = np.zeros((4,))
+    ru = np.zeros_like(rl)
+    il = np.zeros_like(rl)
+    iu = np.zeros_like(rl)
 
-    bound_idx, unassigned_eigs, unassigned_bounds = _assing_bounds(
-        eigs, Bounds(rl, ru), (il, iu)
-    )
+    # setup bounds in reverse order
+    rl[0] = -1.5
+    rl[1] = 0.5
+    rl[2] = -0.5
+    rl[3] = 0.5
 
-    assert unassigned_eigs[0] == 0
-    assert unassigned_bounds[0] == 0
+    ru[0] = -0.5
+    ru[1] = 1.5
+    ru[2] = 0.5
+    ru[3] = 1.5
 
-    for i in range(eigs.shape[0] - 1):
-        assert bound_idx[i] == i + 1
+    il[0] = 0.5
+    il[1] = 0.5
+    il[2] = 0.5
+    il[3] = -0.5
+
+    iu[0] = 1.5
+    iu[1] = 1.5
+    iu[2] = 1.5
+    iu[3] = 0.5
+
+    _eigs = _check_eigs_constraints(eigs, (rl, ru), (il, iu))
+    np.testing.assert_array_equal(_eigs[::-1], eigs)
+
+    _eigs = _check_eigs_constraints(eigs, Bounds(rl, ru), Bounds(il, iu))
+    np.testing.assert_array_equal(_eigs[::-1], eigs)
+
+    # test different inputs
+    _eigs = _check_eigs_constraints(eigs, (rl, ru), Bounds(il, iu))
+    np.testing.assert_array_equal(_eigs[::-1], eigs)
+
+    _eigs = _check_eigs_constraints(eigs, Bounds(rl, ru), (il, iu))
+    np.testing.assert_array_equal(_eigs[::-1], eigs)
+
+    # violate constraints (second eigenvalue)
+    eigs.real[0] = 1.0
+    eigs.imag[1] = 2.0
+    eigs.real[2] = 1.0
+    eigs.imag[2] = 1.0
+    eigs.real[3] = -1.0
+    eigs.imag[3] = 1.0
+
+    _eigs = _check_eigs_constraints(eigs, Bounds(rl, ru), (il, iu))
+    assert eigs.real[0] == _eigs.real[3]
+    assert eigs.imag[0] == _eigs.imag[3]
+
+    assert eigs.real[2] == _eigs.real[1]
+    assert eigs.imag[2] == _eigs.imag[1]
+
+    assert eigs.real[3] == _eigs.real[0]
+    assert eigs.imag[3] == _eigs.imag[0]
+
+    assert rl[2] <= _eigs.real[2] <= ru[2]
+    assert il[2] <= _eigs.imag[2] <= iu[2]
+
+    # setup ordered boundary conditions
+    rl[0] = 0.5
+    rl[1] = 0
+    rl[2] = 0.5
+    rl[3] = -1.0
+
+    ru[0] = 1.5
+    ru[1] = 0.5
+    ru[2] = 1.5
+    ru[3] = 0.5
+
+    il[0] = -0.5
+    il[1] = 0.5
+    il[2] = 0.5
+    il[3] = 0.5
+
+    iu[0] = 0.5
+    iu[1] = 1.5
+    iu[2] = 1.5
+    iu[3] = 1.5
+
+    _eigs = _check_eigs_constraints(eigs, Bounds(rl, ru), (il, iu))
+    assert eigs.real[0] == _eigs.real[0]
+    assert eigs.imag[0] == _eigs.imag[0]
+
+    assert eigs.real[2] == _eigs.real[2]
+    assert eigs.imag[2] == _eigs.imag[2]
+
+    assert eigs.real[3] == _eigs.real[3]
+    assert eigs.imag[3] == _eigs.imag[3]
+
+    assert rl[1] <= _eigs.real[1] <= ru[1]
+    assert il[1] <= _eigs.imag[1] <= iu[1]
+
+    # test predifined rng
+    rng = np.random.Generator(np.random.PCG64())
+
+    _eigs = _check_eigs_constraints(eigs, Bounds(rl, ru), (il, iu), rng=rng)
+    assert eigs.real[0] == _eigs.real[0]
+    assert eigs.imag[0] == _eigs.imag[0]
+
+    assert eigs.real[2] == _eigs.real[2]
+    assert eigs.imag[2] == _eigs.imag[2]
+
+    assert eigs.real[3] == _eigs.real[3]
+    assert eigs.imag[3] == _eigs.imag[3]
+
+    assert rl[1] <= _eigs.real[1] <= ru[1]
+    assert il[1] <= _eigs.imag[1] <= iu[1]
 
     with pytest.raises(
         ValueError, match="Invalid type for real- or imaginary bound!"
     ):
-        _assing_bounds(eigs, [rl, ru], (il, iu))
+        _check_eigs_constraints(eigs, [rl, ru], (il, iu))
 
     with pytest.raises(
         ValueError, match="Invalid type for real- or imaginary bound!"
     ):
-        _assing_bounds(eigs, (rl, ru), [il, iu])
+        _check_eigs_constraints(eigs, (rl, ru), [il, iu])
 
     with pytest.raises(
-        ValueError, match="Invalid type for real- or imaginary bound!"
+        ValueError, match="Box constraint sizes are inconsistent!"
     ):
-        _assing_bounds(eigs, [rl, ru], [il, iu])
+        _check_eigs_constraints(eigs, (rl[:-1], ru), (il, iu))
+
+    with pytest.raises(
+        ValueError, match="Box constraint sizes are inconsistent!"
+    ):
+        _check_eigs_constraints(eigs, (rl[:-1], ru), (il, iu[1:]))
 
 
 def test_varprodmd_rho() -> None:
