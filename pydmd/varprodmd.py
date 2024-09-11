@@ -406,11 +406,12 @@ def _compute_dmd_varpro(
     time: np.ndarray,
     data: np.ndarray,
     opthelper: _OptimizeHelper,
+    bounds: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
     **optargs,
 ) -> OptimizeResult:
-    r"""
-    Compute Variable Projection (VarPro) for DMD using SciPy's
-    nonlinear least squares optimizer.
+    r"""Compute Variable Projection (VarPro) for DMD using SciPy's
+        nonlinear least squares optimizer.
+
 
     :type alphas_init: np.ndarray
     :param time: 1d time array.
@@ -422,9 +423,16 @@ def _compute_dmd_varpro(
         mainly for Jacobian. The entities are computed in `_compute_dmd_rho`
         and are used in `_compute_dmd_jac`.
     :type opthelper: _OptimizeHelper
+    :param bounds: Box constraint bounds for optimization. If `bounds=None`,
+        the optimization is assumed to be unconstrained. Defaults to None.
+        `alphas_init` is assumed to lie within the constraints.
+    :type bounds: tuple[np.ndarray, np.ndarray] | Bounds | None, optional
     :return: Optimization result.
     :rtype: OptimizeResult
     """
+
+    if bounds is None:
+        bounds = (-np.inf, np.inf)
 
     return least_squares(
         _compute_dmd_rho,
@@ -432,6 +440,7 @@ def _compute_dmd_varpro(
         _compute_dmd_jac,
         **optargs,
         args=[time, data, opthelper],
+        bounds=bounds,
     )
 
 
@@ -473,6 +482,8 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
     use_proj: bool = True,
     compression: float = 0,
     omegas_init: np.ndarray | None = None,
+    bounds_real: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
+    bounds_imag: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, OptimizeResult]:
     r"""
     Compute DMD given arbitary timesteps.
@@ -514,6 +525,8 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
                   np.ndarray,
                   OptimizeResult]
     """
+    bounds: Bounds = None
+    check_omegas: bool = False
 
     if data.ndim != 2:
         msg = "data needs to be 2D array"
@@ -532,6 +545,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
         omegas = omegas_init
     else:
         omegas = _compute_dmd_ev(res[0], res[1], res[-1].shape[-1])
+        check_omegas = (bounds_real != None) | (bounds_imag != None)
 
     if compression > 0:
         indices = select_best_samples_fast(res[2], compression)
@@ -552,12 +566,41 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
             )
         )
 
+    if bounds_real is None and bounds_imag is not None:
+        bounds_real = (
+            -np.inf * np.ones((omegas.shape[0])),
+            np.inf * np.ones((omegas.shape[0])),
+        )
+    if bounds_real is not None and bounds_imag is None:
+        bounds_imag = (
+            -np.inf * np.ones((omegas.shape[0])),
+            np.inf * np.ones((omegas.shape[0])),
+        )
+
+    # Adjust omegas if box constraints were given, but an initial estimate
+    # of the eigenvalues is missing.
+    if check_omegas:
+        omegas = _check_eigs_constraints(omegas, bounds_real, bounds_imag)
+
+    if bounds_real is not None and bounds_imag is not None:
+        if isinstance(bounds_real, tuple):
+            lr, ur = bounds_real
+        elif isinstance(bounds_real, Bounds):
+            lr, ur = bounds_real.lb, bounds_real.ub
+        if isinstance(bounds_imag, tuple):
+            li, ui = bounds_imag
+        elif isinstance(bounds_imag, Bounds):
+            li, ui = bounds_imag.lb, bounds_imag.ub
+
+        bounds = Bounds(np.concatenate([lr, li]), np.concatenate([ur, ui]))
+
     opthelper = _OptimizeHelper(res[-1].shape[-1], *res[2].shape)
     opt = _compute_dmd_varpro(
         np.concatenate([omegas.real, omegas.imag]),
         time[indices],
         res[2][:, indices].T,
         opthelper,
+        bounds=bounds,
         **optargs,
     )
     omegas.real = opt.x[: opt.x.shape[-1] // 2]
@@ -616,9 +659,10 @@ class VarProOperator(DMDOperator):
         compression: float,
         optargs: Dict[str, Any],
         omegas_init: np.ndarray | None = None,
+        bounds_real: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
+        bounds_imag: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
     ):
-        r"""
-        VarProOperator constructor.
+        r"""VarProOperator constructor.
 
         :param svd_rank: Desired SVD rank.
             If rank :math:`r = 0`, the optimal rank is
@@ -670,16 +714,26 @@ class VarProOperator(DMDOperator):
         :param omega_init: Initial estimate of cont. eigenvalues.
             If `omegas_init=None`, an initial estimate of the eigenvalues is calculated.
         :type omegas_init: np.ndarray, optional
+        :param bounds_real: Box constraints for real part of eigenvalues :math:`\boldsymbol{\omega}`.
+            If `bounds_real=None`, the optimization is either unconstrained if `bounds_imag=None`,
+            or the real parts are unconstrained if `bounds_imag!=None`. Defaults to None
+        :type bounds_real: tuple[np.ndarray, np.ndarray] | Bounds | None, optional
+        :param bounds_imag: Box constraints for imaginary part of eigenvalues :math:`\boldsymbol{\omega}`.
+            If `bounds_imag=None`, the optimization is either unconstrained if `bounds_real=None`,
+            or the imaginary parts are unconstrained if `bounds_real!=None`. Defaults to None
+        :type bounds_imag: tuple[np.ndarray, np.ndarray] | Bounds | None, optional
         """
 
         super().__init__(svd_rank, exact, False, None, sorted_eigs, False)
-        self._sorted_eigs = sorted_eigs
-        self._svd_rank = svd_rank
-        self._exact = exact
+        self._sorted_eigs: str | bool = sorted_eigs
+        self._svd_rank: float | int = svd_rank
+        self._exact: bool = exact
         self._optargs: Dict[str, Any] = optargs
         self._compression: float = compression
         self._modes: np.ndarray = None
         self._eigenvalues: np.ndarray = omegas_init
+        self._br: tuple[np.ndarray, np.ndarray] | Bounds | None = bounds_real
+        self._bi: tuple[np.ndarray, np.ndarray] | Bounds | None = bounds_imag
 
     def compute_operator(
         self, X: np.ndarray, Y: np.ndarray
@@ -718,6 +772,8 @@ class VarProOperator(DMDOperator):
             not self._exact,
             self._compression,
             omegas_init=self._eigenvalues,
+            bounds_real=self._br,
+            bounds_imag=self._bi,
         )
 
         # overwrite for lazy sorting
@@ -772,6 +828,8 @@ class VarProDMD(DMDBase):
         compression: float = 0.0,
         optargs: Dict[str, Any] | None = None,
         omegas_init: np.ndarray | None = None,
+        bounds_real: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
+        bounds_imag: tuple[np.ndarray, np.ndarray] | Bounds | None = None,
     ):
         r"""
         VarProDMD constructor.
@@ -828,6 +886,14 @@ class VarProDMD(DMDBase):
         :param omegas_init: Initial estimate of (complex) eigenvalues. If set to None,
             an initial estimate is calculated.
         :type omegas_init: np.ndarray, optional
+        :param bounds_real: Box constraints for real part of eigenvalues :math:`\boldsymbol{\omega}`.
+            If `bounds_real=None`, the optimization is either unconstrained if `bounds_imag=None`,
+            or the real parts are unconstrained if `bounds_imag!=None`. Defaults to None
+        :type bounds_real: tuple[np.ndarray, np.ndarray] | Bounds | None, optional
+        :param bounds_imag: Box constraints for imaginary part of eigenvalues :math:`\boldsymbol{\omega}`.
+            If `bounds_imag=None`, the optimization is either unconstrained if `bounds_real=None`,
+            or the imaginary parts are unconstrained if `bounds_real!=None`. Defaults to None
+        :type bounds_imag: tuple[np.ndarray, np.ndarray] | Bounds | None, optional
         """
 
         # super constructor not called
@@ -844,6 +910,8 @@ class VarProDMD(DMDBase):
             compression,
             optargs,
             omegas_init=omegas_init,
+            bounds_real=bounds_real,
+            bounds_imag=bounds_imag,
         )
         self._optres: OptimizeResult = None
         self._snapshots_holder: Snapshots = None
