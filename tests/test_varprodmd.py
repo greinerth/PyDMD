@@ -37,6 +37,18 @@ def signal(x_loc: np.ndarray, time: np.ndarray) -> np.ndarray:
     return f_1 + f_2
 
 
+@pytest.fixture
+def generate_signal() -> tuple[np.ndarray, np.ndarray]:
+    """Generate high-dimensional test signal
+
+    :return: time and high dimensional signal
+    :rtype: tuple[np.ndarray, np.ndarray]
+    """
+    time = np.linspace(0, 4 * np.pi, 100)
+    x_loc = np.linspace(-10, 10, 1024)
+    return time, signal(*np.meshgrid(x_loc, time)).T
+
+
 def test_assign_bounds() -> None:
     """Test boundary assignment to corresponding cont. complex eigenvalues"""
     eigs = np.zeros((4,), dtype=np.complex128)
@@ -458,14 +470,11 @@ def test_varprodmd_jac() -> (
     assert np.linalg.norm(GRAD_IMAG - rec_grad) < 1e-9
 
 
-def test_varprodmd_any() -> None:
+def test_varprodmd_any(generate_signal) -> None:
     """
     Test Variable Projection function for DMD (at any timestep).
     """
-    time = np.linspace(0, 4 * np.pi, 100)
-    x_loc = np.linspace(-10, 10, 1024)
-
-    z = signal(*np.meshgrid(x_loc, time)).T
+    time, z = generate_signal
 
     with pytest.raises(ValueError, match="Expected 2D array!"):
         select_best_samples_fast(z[:, 0], 0.6)
@@ -524,14 +533,11 @@ def test_varprodmd_any() -> None:
     assert mae < 1.0
 
 
-def test_varprodmd_class() -> None:
+def test_varprodmd_class(generate_signal) -> None:
     """
     Test VarProDMD class.
     """
-    time = np.linspace(0, 4 * np.pi, 100)
-    x_loc = np.linspace(-10, 10, 1024)
-
-    z = signal(*np.meshgrid(x_loc, time)).T
+    time, z = generate_signal
     dmd = VarProDMD(0, False, False, 0)
 
     with pytest.raises(ValueError):
@@ -594,3 +600,76 @@ def test_varprodmd_class() -> None:
     # trigger warning
     dmd = VarProDMD(omegas_init=dmd.eigs)
     dmd.fit(z[:, :2], time[:2])
+
+
+def test_constraints(generate_signal) -> None:
+    """Test constraints for VarProDMD"""
+    time, z = generate_signal
+    li = -3.0 * np.ones((4,))
+    ui = +3.0 * np.ones((4,))
+
+    dmd = VarProDMD(bounds_imag=(li, ui))
+    dmd.fit(z, time)
+
+    assert dmd.eigs.shape[0] == 4
+    for i in range(dmd.eigs.shape[0]):
+        assert li[i] <= dmd.eigs.imag[i] <= ui[i]
+
+    dmd = VarProDMD(bounds_imag=Bounds(li, ui))
+    dmd.fit(z, time)
+
+    assert dmd.eigs.shape[0] == 4
+    for i in range(dmd.eigs.shape[0]):
+        assert li[i] <= dmd.eigs.imag[i] <= ui[i]
+
+    lr = -1e6 * np.ones_like(li)
+    ur = np.zeros_like(ui)
+
+    dmd = VarProDMD(bounds_imag=(li, ui), bounds_real=(lr, ur))
+    dmd.fit(z, time)
+
+    assert dmd.eigs.shape[0] == 4
+    for i in range(dmd.eigs.shape[0]):
+        assert li[i] <= dmd.eigs.imag[i] <= ui[i]
+        assert lr[i] <= dmd.eigs.real[i] <= ur[i]
+
+    dmd = VarProDMD(bounds_imag=(li, ui), bounds_real=Bounds(lr, ur))
+    dmd.fit(z, time)
+
+    assert dmd.eigs.shape[0] == 4
+    for i in range(dmd.eigs.shape[0]):
+        assert li[i] <= dmd.eigs.imag[i] <= ui[i]
+        assert lr[i] <= dmd.eigs.real[i] <= ur[i]
+
+    dmd = VarProDMD(bounds_imag=Bounds(li, ui), bounds_real=Bounds(lr, ur))
+    dmd.fit(z, time)
+
+    assert dmd.eigs.shape[0] == 4
+    for i in range(dmd.eigs.shape[0]):
+        assert li[i] <= dmd.eigs.imag[i] <= ui[i]
+        assert lr[i] <= dmd.eigs.real[i] <= ur[i]
+
+    # enforce stable modes
+    lr = -1e1 * np.ones_like(li)
+    ur = np.zeros_like(ui)
+    li = -1e1 * np.ones_like(li)
+    ui = 1e1 * np.ones_like(ui)
+
+    dmd = VarProDMD(bounds_real=Bounds(lr, ur), bounds_imag=(li, ui))
+    dmd.fit(z, time)
+
+    assert dmd.eigs.shape[0] == 4
+    for i in range(dmd.eigs.shape[0]):
+        assert lr[i] <= dmd.eigs.real[i] <= ur[i]
+
+    lr = -1e1 * np.ones((1000,))
+    ur = np.zeros_like(lr)
+    li = -1e1 * np.ones_like(lr)
+    ui = 1e1 * np.ones_like(ur)
+    dmd = VarProDMD(bounds_real=Bounds(lr, ur), bounds_imag=(li, ui))
+
+    with pytest.raises(
+        ValueError,
+        match="Constraint violation, please reduce number of constraints!",
+    ):
+        dmd.fit(z, time)

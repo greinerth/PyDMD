@@ -167,6 +167,7 @@ def _check_eigs_constraints(
     if rng is None:
         rng = np.random.default_rng()
 
+    # check if real parts fulfill constraints, if not reassign values
     _omegas.real[idx_unassigned_bounds] = rng.uniform(
         lbreal[idx_unassigned_bounds], ubreal[idx_unassigned_bounds]
     )
@@ -526,7 +527,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
                   OptimizeResult]
     """
     bounds: Bounds = None
-    check_omegas: bool = False
+    bounds_active: bool = False
 
     if data.ndim != 2:
         msg = "data needs to be 2D array"
@@ -536,6 +537,31 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
         msg = "time needs to be a 1D array"
         raise ValueError(msg)
 
+    if isinstance(bounds_real, tuple):
+        lr, ur = bounds_real
+        bounds_active = True
+    elif isinstance(bounds_real, Bounds):
+        lr, ur = bounds_real.lb, bounds_real.ub
+        bounds_active = True
+
+    if isinstance(bounds_imag, tuple):
+        li, ui = bounds_imag
+        bounds_active = True
+    elif isinstance(bounds_imag, Bounds):
+        li, ui = bounds_imag.lb, bounds_imag.ub
+        bounds_active = True
+
+    if bounds_real is None and bounds_imag is not None:
+        lr = -np.inf * np.ones_like(li)
+        ur = np.inf * np.ones_like(ui)
+
+    if bounds_real is not None and bounds_imag is None:
+        li = -np.inf * np.ones_like(lr)
+        ui = np.inf * np.ones_like(ur)
+
+    if bounds_active:
+        bounds = Bounds(np.concatenate([lr, li]), np.concatenate([ur, ui]))
+
     #  y_in, z_in, data_in, u_r
     res = _varpro_preprocessing(data, time, rank, use_proj)
     if omegas_init is not None:
@@ -544,8 +570,17 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
             raise ValueError(msg)
         omegas = omegas_init
     else:
-        omegas = _compute_dmd_ev(res[0], res[1], res[-1].shape[-1])
-        check_omegas = (bounds_real != None) | (bounds_imag != None)
+        if bounds_active:
+            omegas = _compute_dmd_ev(res[0], res[1], lr.shape[0])
+            if omegas.shape[0] != lr.shape[0]:
+                msg = (
+                    "Constraint violation, please reduce number of constraints!"
+                )
+                raise ValueError(msg)
+
+            omegas = _check_eigs_constraints(omegas, (lr, ur), (li, ui))
+        else:
+            omegas = _compute_dmd_ev(res[0], res[1], res[-1].shape[-1])
 
     if compression > 0:
         indices = select_best_samples_fast(res[2], compression)
@@ -565,34 +600,6 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
                 )
             )
         )
-
-    if bounds_real is None and bounds_imag is not None:
-        bounds_real = (
-            -np.inf * np.ones((omegas.shape[0])),
-            np.inf * np.ones((omegas.shape[0])),
-        )
-    if bounds_real is not None and bounds_imag is None:
-        bounds_imag = (
-            -np.inf * np.ones((omegas.shape[0])),
-            np.inf * np.ones((omegas.shape[0])),
-        )
-
-    # Adjust omegas if box constraints were given, but an initial estimate
-    # of the eigenvalues is missing.
-    if check_omegas:
-        omegas = _check_eigs_constraints(omegas, bounds_real, bounds_imag)
-
-    if bounds_real is not None and bounds_imag is not None:
-        if isinstance(bounds_real, tuple):
-            lr, ur = bounds_real
-        elif isinstance(bounds_real, Bounds):
-            lr, ur = bounds_real.lb, bounds_real.ub
-        if isinstance(bounds_imag, tuple):
-            li, ui = bounds_imag
-        elif isinstance(bounds_imag, Bounds):
-            li, ui = bounds_imag.lb, bounds_imag.ub
-
-        bounds = Bounds(np.concatenate([lr, li]), np.concatenate([ur, ui]))
 
     opthelper = _OptimizeHelper(res[-1].shape[-1], *res[2].shape)
     opt = _compute_dmd_varpro(
