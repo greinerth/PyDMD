@@ -19,6 +19,7 @@ from pydmd.varprodmd import (
     select_best_samples_fast,
 )
 from scipy.optimize import Bounds
+import re
 
 
 def signal(x_loc: np.ndarray, time: np.ndarray) -> np.ndarray:
@@ -326,6 +327,11 @@ def test_eigs_constraints() -> None:
     ):
         _check_eigs_constraints(eigs, (rl[:-1], ru), (il, iu[1:]))
 
+    with pytest.raises(
+        ValueError, match="Expected 1D arrays for lower- and upper bounds!"
+    ):
+        _check_eigs_constraints(eigs, (rl, ru), (il, iu[None]))
+
 
 def test_varprodmd_rho() -> None:
     """
@@ -461,6 +467,14 @@ def test_varprodmd_any() -> None:
 
     z = signal(*np.meshgrid(x_loc, time)).T
 
+    with pytest.raises(ValueError, match="Expected 2D array!"):
+        select_best_samples_fast(z[:, 0], 0.6)
+
+    with pytest.raises(
+        ValueError, match=re.escape("Compression must be in (0, 1)!")
+    ):
+        select_best_samples_fast(z, 1.0)
+
     idx = select_best_samples_fast(z, 0.6)
 
     z_sub = z[:, idx]
@@ -482,6 +496,11 @@ def test_varprodmd_any() -> None:
     phi, lambdas, eigenf, _, _ = compute_varprodmd_any(
         z_sub, t_sub, OPT_DEF_ARGS, rank=0.0
     )
+
+    with pytest.raises(ValueError, match="omegas_init needs to be 1D array!"):
+        compute_varprodmd_any(
+            z_sub, t_sub, OPT_DEF_ARGS, omegas_init=lambdas[None]
+        )
 
     pred = varprodmd_predict(phi, lambdas, eigenf, time)
     diff = np.abs(pred - z)
@@ -558,8 +577,20 @@ def test_varprodmd_class() -> None:
         dmd = VarProDMD(0, False, arg, 0.6, omegas_init=eigs)
         dmd.fit(z, time)
         eigs = dmd.eigs
+        assert dmd.opt_stats.x.shape[0] == 2 * eigs.shape[0]
         pred = dmd.forecast(time)
         diff = np.abs(pred - z)
         mae = np.sum(np.sum(diff, axis=0), axis=-1) / z.shape[0] / z.shape[-1]
         assert dmd.selected_samples.size == int((1 - 0.6) * 100)
         assert mae < 1.0
+        assert dmd.ssr < 1e-3
+
+    # force 1 sample to be selected, which is assumed to be to imprecise for reconstruction
+    # and eigenvalue identification
+    dmd = VarProDMD(compression=0.99)
+    dmd.fit(z, time)
+    assert dmd.selected_samples.shape[0] == z.shape[-1]
+
+    # trigger warning
+    dmd = VarProDMD(omegas_init=dmd.eigs)
+    dmd.fit(z[:, :2], time[:2])

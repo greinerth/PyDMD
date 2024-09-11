@@ -53,10 +53,9 @@ def _assign_bounds(
     :param omegas: Cont. eigenvalues :math:`\boldsymbol{\omega}`
     :type omegas: np.ndarray
     :param real_bound: Upper- and lower bounds of real part of cont. eigenvalues.
-    :type real_bound: tuple[np.ndarray, np.ndarray] | Bounds
+    :type real_bound: tuple[np.ndarray, np.ndarray]
     :param imag_bound: Upper- and lower bounds of imaginary part of cont. eigenvalues.
-    :type imag_bound: tuple[np.ndarray, np.ndarray] | Bounds
-    :raises ValueError: If `real_bound` pr `imag_bound` is not of type tuple or Bounds.
+    :type imag_bound: tuple[np.ndarray, np.ndarray]
     :return: Indices of assigned bounds, indices of assigned cont. eigenvalues and indices of unassigned bounds.
     :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
     """
@@ -458,7 +457,7 @@ def select_best_samples_fast(data: np.ndarray, comp: float = 0.9) -> np.ndarray:
         raise ValueError("Expected 2D array!")
 
     if not 0 < comp < 1:
-        raise ValueError("Compression must be in (0, 1)]")
+        raise ValueError("Compression must be in (0, 1)!")
 
     n_samples = int(data.shape[-1] * (1.0 - comp))
     pcolumn = qr(data, mode="economic", pivoting=True)[-1]
@@ -528,7 +527,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
     res = _varpro_preprocessing(data, time, rank, use_proj)
     if omegas_init is not None:
         if omegas_init.ndim != 1:
-            msg = "Expected 1D array!"
+            msg = "omegas_init needs to be 1D array!"
             raise ValueError(msg)
         omegas = omegas_init
     else:
@@ -538,7 +537,7 @@ def compute_varprodmd_any(  # pylint: disable=unused-variable
         indices = select_best_samples_fast(res[2], compression)
 
         if indices.size <= 1:
-            indices = np.arange(res[2])
+            indices = np.arange(res[2].shape[-1])
 
     else:
         indices = np.arange(res[2].shape[-1])
