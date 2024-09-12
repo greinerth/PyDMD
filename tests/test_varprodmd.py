@@ -652,10 +652,8 @@ def test_constraints(generate_signal) -> None:
     # enforce stable modes
     lr = -1e1 * np.ones_like(li)
     ur = np.zeros_like(ui)
-    li = -1e1 * np.ones_like(li)
-    ui = 1e1 * np.ones_like(ui)
 
-    dmd = VarProDMD(bounds_real=Bounds(lr, ur), bounds_imag=(li, ui))
+    dmd = VarProDMD(bounds_real=Bounds(lr, ur))
     dmd.fit(z, time)
 
     assert dmd.eigs.shape[0] == 4
@@ -666,7 +664,7 @@ def test_constraints(generate_signal) -> None:
     ur = np.zeros_like(lr)
     li = -1e1 * np.ones_like(lr)
     ui = 1e1 * np.ones_like(ur)
-    dmd = VarProDMD(bounds_real=Bounds(lr, ur), bounds_imag=(li, ui))
+    dmd = VarProDMD(bounds_real=Bounds(lr, ur), bounds_imag=Bounds(li, ui))
 
     with pytest.raises(
         ValueError,

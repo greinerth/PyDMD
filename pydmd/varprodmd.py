@@ -163,16 +163,41 @@ def _check_eigs_constraints(
 
     _omegas = np.zeros_like(omegas)
     _omegas[mapping] = omegas[idx_assigned_eigs]
+    msk_assigned_omegas = np.ones_like(_omegas, dtype=bool)
+    msk_assigned_omegas[idx_assigned_eigs] = False
+    unassigned_omega = omegas[msk_assigned_omegas]
 
     if rng is None:
         rng = np.random.default_rng()
 
-    # check if real parts fulfill constraints, if not reassign values
-    _omegas.real[idx_unassigned_bounds] = rng.uniform(
-        lbreal[idx_unassigned_bounds], ubreal[idx_unassigned_bounds]
+    # assign real and imaginary parts that achieve a match idependently
+    msk_real = (unassigned_omega.real >= lbreal[idx_unassigned_bounds]) & (
+        unassigned_omega.real <= ubreal[idx_unassigned_bounds]
     )
-    _omegas.imag[idx_unassigned_bounds] = rng.uniform(
-        lbimag[idx_unassigned_bounds], ubimag[idx_unassigned_bounds]
+    idx_real = np.where(msk_real)[0]
+    msk_imag = (unassigned_omega.imag >= lbimag[idx_unassigned_bounds]) & (
+        unassigned_omega.imag <= ubimag[idx_unassigned_bounds]
+    )
+    idx_imag = np.where(msk_imag)[0]
+
+    _omegas.real[idx_unassigned_bounds[idx_real]] = unassigned_omega.real[
+        idx_real
+    ]
+    _omegas.imag[idx_unassigned_bounds[idx_imag]] = unassigned_omega.imag[
+        idx_imag
+    ]
+
+    # Assign missing real- or imaginary parts according to box constraints which are not fullfilled
+    idx_real = np.where(~msk_real)[0]
+    idx_imag = np.where(~msk_imag)[0]
+
+    _omegas.real[idx_unassigned_bounds[idx_real]] = rng.uniform(
+        lbreal[idx_unassigned_bounds[idx_real]],
+        ubreal[idx_unassigned_bounds[idx_real]],
+    )
+    _omegas.imag[idx_unassigned_bounds[idx_imag]] = rng.uniform(
+        lbimag[idx_unassigned_bounds[idx_imag]],
+        ubimag[idx_unassigned_bounds[idx_imag]],
     )
 
     return _omegas
