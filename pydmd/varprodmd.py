@@ -85,7 +85,7 @@ def _assign_bounds(
             assigned_omegas[i] = True
 
     return (
-        np.array(mapping),
+        np.array(mapping, dtype=int),
         np.where(assigned_omegas)[0],
         np.where(~assigned_box)[0],
     )
