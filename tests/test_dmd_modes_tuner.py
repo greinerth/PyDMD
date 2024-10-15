@@ -2,22 +2,16 @@ from copy import deepcopy
 
 import numpy as np
 import pytest
-from ezyrb import POD, RBF
 from pytest import param, raises
-import numpy as np
 
 from pydmd import (
     CDMD,
     DMD,
     HODMD,
-    DMDBase,
     DMDc,
     FbDMD,
     HankelDMD,
-    MrDMD,
-    OptDMD,
     ParametricDMD,
-    SpDMD,
 )
 from pydmd.dmd_modes_tuner import (
     BOUND,
@@ -180,7 +174,9 @@ def test_stable_modes_outside_only():
     expected_result[[0, 2, 4, 5]] = True
 
     assert all(
-        ModesSelectors.stable_modes(max_distance_from_unity_outside=1e-3)(fake_dmd)
+        ModesSelectors.stable_modes(max_distance_from_unity_outside=1e-3)(
+            fake_dmd
+        )
         == expected_result
     )
 
@@ -200,7 +196,9 @@ def test_stable_modes_inside_only():
     expected_result[[0, 1, 3, 4, 5]] = True
 
     assert all(
-        ModesSelectors.stable_modes(max_distance_from_unity_inside=1e-3)(fake_dmd)
+        ModesSelectors.stable_modes(max_distance_from_unity_inside=1e-3)(
+            fake_dmd
+        )
         == expected_result
     )
 
@@ -228,14 +226,17 @@ def test_threshold():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     expected_result = np.array([False for _ in range(6)])
     expected_result[[1, 5]] = True
 
     assert all(
-        ModesSelectors.threshold(1 + 1.0e-3, 2 + 1.0e-10)(fake_dmd) == expected_result
+        ModesSelectors.threshold(1 + 1.0e-3, 2 + 1.0e-10)(fake_dmd)
+        == expected_result
     )
 
 
@@ -266,7 +267,9 @@ def test_integral_contribution():
     expected_result = np.array([False for _ in range(4)])
     expected_result[[2, 3]] = True
 
-    assert all(ModesSelectors.integral_contribution(2)(fake_dmd) == expected_result)
+    assert all(
+        ModesSelectors.integral_contribution(2)(fake_dmd) == expected_result
+    )
 
 
 def test_integral_contribution_reconstruction():
@@ -409,7 +412,9 @@ def test_stabilize_modes_index_deepcopy():
 
     setattr(dmd, "_b", amplitudes)
 
-    dmd2, indexes = stabilize_modes(dmd, 0.8, 1.2, in_place=False, return_indexes=True)
+    dmd2, indexes = stabilize_modes(
+        dmd, 0.8, 1.2, in_place=False, return_indexes=True
+    )
 
     np.testing.assert_array_almost_equal(
         dmd2.eigs,
@@ -453,7 +458,9 @@ def test_stabilize_modes_index_deepcopy():
         ),
     )
 
-    np.testing.assert_array_almost_equal(dmd.amplitudes, np.array([1, 2, 3, 4, 5, 6]))
+    np.testing.assert_array_almost_equal(
+        dmd.amplitudes, np.array([1, 2, 3, 4, 5, 6])
+    )
 
     np.testing.assert_almost_equal(indexes, [1, 2, 3])
 
@@ -467,7 +474,9 @@ def test_modes_tuner_copy():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     ModesTuner(fake_dmd)._dmds[0].eigs[1] = 0
@@ -484,7 +493,9 @@ def test_modes_tuner_scalar_input():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     mt = ModesTuner(fake_dmd, in_place=True)
@@ -534,7 +545,9 @@ def test_modes_tuner_get():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     mtuner = ModesTuner(fake_dmd)
@@ -552,7 +565,9 @@ def test_modes_tuner_secure_copy():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     mtuner = ModesTuner(fake_dmd)
@@ -570,7 +585,9 @@ def test_modes_tuner_inplace():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     mtuner = ModesTuner(fake_dmd, in_place=True)
@@ -588,13 +605,17 @@ def test_modes_tuner_inplace_list():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
     fake_dmd2 = FakeDMD()
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 3, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 3, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     mtuner = ModesTuner([fake_dmd, fake_dmd2], in_place=True)
@@ -613,7 +634,9 @@ def test_modes_tuner_select_raises():
     setattr(
         fake_dmd,
         "eigs",
-        np.array([complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]),
+        np.array(
+            [complex(1, 1e-4), 2, complex(1, 1e-2), 5, 1, complex(1, 5 * 1e-2)]
+        ),
     )
 
     with raises(ValueError):
@@ -910,7 +933,10 @@ def test_modes_tuner_index_scalar_dmd_raises():
 def test_modes_tuner_selectors():
     assert selectors["module_threshold"] == ModesSelectors.threshold
     assert selectors["stable_modes"] == ModesSelectors.stable_modes
-    assert selectors["integral_contribution"] == ModesSelectors.integral_contribution
+    assert (
+        selectors["integral_contribution"]
+        == ModesSelectors.integral_contribution
+    )
 
 
 @pytest.mark.parametrize(
@@ -926,22 +952,26 @@ def test_modes_tuner_selectors():
 )
 def test_modes_selector_all_dmd_types(dmd):
     print(
-        "--------------------------- {} ---------------------------".format(type(dmd))
+        "--------------------------- {} ---------------------------".format(
+            type(dmd)
+        )
     )
     if isinstance(dmd, ParametricDMD):
         repeated = np.repeat(sample_data[None], 10, axis=0)
         dmd.fit(repeated + np.random.rand(*repeated.shape), np.ones(10))
     elif isinstance(dmd, DMDc):
-        snapshots = np.array([[4, 2, 1, 0.5, 0.25], [7, 0.7, 0.07, 0.007, 0.0007]])
+        snapshots = np.array(
+            [[4, 2, 1, 0.5, 0.25], [7, 0.7, 0.07, 0.007, 0.0007]]
+        )
         u = np.array([-4, -2, -1, -0.5])
         B = np.array([[1, 0]]).T
         dmd.fit(snapshots, u, B)
     else:
         dmd.fit(sample_data)
 
-    ModesTuner(dmd, in_place=True).select("integral_contribution", n=3).stabilize(
-        1 - 1.0e-3
-    )
+    ModesTuner(dmd, in_place=True).select(
+        "integral_contribution", n=3
+    ).stabilize(1 - 1.0e-3)
     assert True
 
 
@@ -957,9 +987,15 @@ def test_sr3_qp_unconstrained() -> None:
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
     a_mat = _get_a_mat(omegas, time)
 
-    u_real_flat, b_real_flat = sr3_optimize_qp(a_mat, z.T, alpha=0, beta=0, max_iter=10)
-    b_real = np.reshape(b_real_flat, (2 * dmd.modes.shape[1], dmd.modes.shape[0]), "F")
-    b_fitted_modes_t = np.zeros((b_real.shape[0] // 2, b_real.shape[1]), dtype=complex)
+    u_real_flat, b_real_flat = sr3_optimize_qp(
+        a_mat, z.T, alpha=0, beta=0, max_iter=10
+    )
+    b_real = np.reshape(
+        b_real_flat, (2 * dmd.modes.shape[1], dmd.modes.shape[0]), "F"
+    )
+    b_fitted_modes_t = np.zeros(
+        (b_real.shape[0] // 2, b_real.shape[1]), dtype=complex
+    )
     b_fitted_modes_t.real = b_real[: b_real.shape[0] // 2]
     b_fitted_modes_t.imag = b_real[b_real.shape[0] // 2 :]
     b_fitted_modes = b_fitted_modes_t.T
@@ -970,8 +1006,12 @@ def test_sr3_qp_unconstrained() -> None:
     assert np.linalg.norm(z - rec, axis=0).mean() < 1e-9
 
     # The "sparse" support should yield the same result
-    u_real = np.reshape(u_real_flat, (2 * dmd.modes.shape[1], dmd.modes.shape[0]), "F")
-    u_fitted_modes_t = np.zeros((u_real.shape[0] // 2, b_real.shape[1]), dtype=complex)
+    u_real = np.reshape(
+        u_real_flat, (2 * dmd.modes.shape[1], dmd.modes.shape[0]), "F"
+    )
+    u_fitted_modes_t = np.zeros(
+        (u_real.shape[0] // 2, b_real.shape[1]), dtype=complex
+    )
     u_fitted_modes_t.real = u_real[: u_real.shape[0] // 2]
     u_fitted_modes_t.imag = b_real[u_real.shape[0] // 2 :]
     u_fitted_modes = u_fitted_modes_t.T
@@ -1009,7 +1049,9 @@ def test_sr3_qp_constrained() -> None:
     # test constrained QP: lower bound only
     b_real_low = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]))
     b_imag_low = -np.inf * np.ones_like(b_real_low)
-    lower_bound = np.ravel(np.concatenate([b_real_low, b_imag_low], axis=0), "F")
+    lower_bound = np.ravel(
+        np.concatenate([b_real_low, b_imag_low], axis=0), "F"
+    )
 
     u_real = sr3_optimize_qp(a_mat, z.T, 1.0, 1e-3, lb=lower_bound)[0]
 
@@ -1021,7 +1063,9 @@ def test_sr3_qp_constrained() -> None:
     # test constrained QP: higher bound only
     b_real_high = np.ones((dmd.modes.shape[1], dmd.modes.shape[0]))
     b_imag_high = np.inf * np.ones_like(b_real_low)
-    upper_bound = np.ravel(np.concatenate([b_real_high, b_imag_high], axis=0), "F")
+    upper_bound = np.ravel(
+        np.concatenate([b_real_high, b_imag_high], axis=0), "F"
+    )
 
     u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-6, ub=upper_bound)[0]
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
@@ -1036,10 +1080,16 @@ def test_sr3_qp_constrained() -> None:
     b_imag_low = np.zeros_like(b_real_low)
     b_imag_high = 10.0 * np.ones_like(b_imag_low)
 
-    lower_bound = np.ravel(np.concatenate([b_real_low, b_imag_low], axis=0), "F")
-    upper_bound = np.ravel(np.concatenate([b_real_high, b_imag_high], axis=0), "F")
+    lower_bound = np.ravel(
+        np.concatenate([b_real_low, b_imag_low], axis=0), "F"
+    )
+    upper_bound = np.ravel(
+        np.concatenate([b_real_high, b_imag_high], axis=0), "F"
+    )
 
-    u_real = sr3_optimize_qp(a_mat, z.T, 1e-9, 1e-4, lb=lower_bound, ub=upper_bound)[0]
+    u_real = sr3_optimize_qp(
+        a_mat, z.T, 1e-9, 1e-4, lb=lower_bound, ub=upper_bound
+    )[0]
 
     u = np.zeros((dmd.modes.shape[1], dmd.modes.shape[0]), dtype=complex)
     u.real = u_real[: u_real.shape[0] // 2, :]
@@ -1063,7 +1113,9 @@ def test_sparse_modes() -> None:
     dmd.fit(z[:, :-1], z[:, 1:])
     omegas = np.log(dmd.eigs) / (time[1] - time[0])
 
-    modes, amps, ok_idx = sparsify_modes(omegas, time, z, max_iter=10, beta=1e-4)
+    modes, amps, ok_idx = sparsify_modes(
+        omegas, time, z, max_iter=10, beta=1e-4
+    )
     rec = varprodmd_predict(modes, omegas[ok_idx], amps, time)
     errors = np.linalg.norm(z - rec, axis=0)
     msk = (modes.real != 0) & (modes.imag != 0)
@@ -1111,7 +1163,9 @@ def test_sparse_modes() -> None:
 
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
-    assert 0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
+    assert (
+        0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
+    )
 
     r_bound = BOUND(None, 0.0)
     i_bound = BOUND(0.0, None)
@@ -1136,7 +1190,9 @@ def test_sparse_modes() -> None:
 
     assert np.sum(xi.real <= 0) > 0
     assert np.sum(xi.imag >= 0) > 0
-    assert 0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
+    assert (
+        0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(dmd.modes.shape)
+    )
 
     dmd.dmd_time = {"t0": time[0], "tend": time[-1], "dt": time[1] - time[0]}
     tuner = ModesTuner(dmd)
@@ -1154,19 +1210,21 @@ def test_sparse_modes() -> None:
     np.testing.assert_array_equal(time, refined_dmd.dmd_timesteps)
 
     assert (
-        0 < np.sum((xi.imag == 0) & (xi.real == 0)) < np.prod(refined_dmd.modes.shape)
+        0
+        < np.sum((xi.imag == 0) & (xi.real == 0))
+        < np.prod(refined_dmd.modes.shape)
     )
 
 
 @pytest.mark.skip("Test not working as intended yet!")
 def test_synthetic_sparse_signal() -> None:
     """Test synthetic dmd signal (constructed by sparse modes)."""
-    modes_real = np.random.binomial(1.0, 0.5, size=(1024, 4)) * np.random.normal(
-        size=(1024, 4)
-    )
-    modes_imag = np.random.binomial(1.0, 0.5, size=(1024, 4)) * np.random.normal(
-        size=(1024, 4)
-    )
+    modes_real = np.random.binomial(
+        1.0, 0.5, size=(1024, 4)
+    ) * np.random.normal(size=(1024, 4))
+    modes_imag = np.random.binomial(
+        1.0, 0.5, size=(1024, 4)
+    ) * np.random.normal(size=(1024, 4))
 
     br = BOUND(modes_real.min(), modes_real.max())
     bi = BOUND(modes_imag.min(), modes_imag.max())
@@ -1247,3 +1305,14 @@ def test_select_modes_sparse() -> None:
     match = "Invalid shape of time. Must be 1D array!"
     with pytest.raises(ValueError, match=match):
         select_modes_sparse(data, dmd.modes, omegas, time[None])
+
+    mt = ModesTuner(dmd)
+    mt.select_modes_sparse(alpha=1e-9, beta=1e-2)
+    new_dmd = mt.get()
+
+    assert new_dmd.modes.shape[-1] < dmd.modes.shape[-1]
+    assert new_dmd.amplitudes.shape[0] < dmd.amplitudes.shape[0]
+    assert new_dmd.eigs.shape[0] < dmd.eigs.shape[0]
+
+    pred_sparse = new_dmd.predict(data[:, :-1])
+    assert np.mean(np.linalg.norm(data[:, 1:] - pred_sparse.real, axis=0)) < 2.5

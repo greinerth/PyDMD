@@ -3,11 +3,16 @@ A module which contains several functions to tune (i.e. improve) DMD instances
 through the "manual" modification of DMD modes.
 """
 
+from __future__ import annotations
 from collections import namedtuple
 from copy import deepcopy
 from functools import partial
 from types import MappingProxyType
 from typing import Any, Dict, NamedTuple
+from .bopdmd import BOPDMD
+from .dmd import DMD
+from .varprodmd import VarProDMD
+
 
 import numpy as np
 import scipy as scp
@@ -127,9 +132,9 @@ def _prox_l1_complex(
     """
     out = np.zeros_like(X_real_imag)
     msk = X_abs >= alpha
-    out[msk] = np.divide(X_real_imag[msk], X_abs[msk], where=X_abs[msk] != 0) * (
-        X_abs[msk] - alpha
-    )
+    out[msk] = np.divide(
+        X_real_imag[msk], X_abs[msk], where=X_abs[msk] != 0
+    ) * (X_abs[msk] - alpha)
     return out
 
 
@@ -328,7 +333,9 @@ def select_modes_sparse(
     :rtype: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     """
     if (dmdobs.ndim != 2) or (dmdobs.shape[0] != modes.shape[0]):
-        msg = "Invalid data shape. Must be 2D and have as many rows as dmd modes!"
+        msg = (
+            "Invalid data shape. Must be 2D and have as many rows as dmd modes!"
+        )
         raise ValueError(msg)
     if omegas.ndim != 1:
         msg = "Invalid shape of continuous eigenvalues. Must be 1D array!"
@@ -341,7 +348,9 @@ def select_modes_sparse(
     A = np.tile(modes, (time.shape[-1], 1)) * np.tile(exp, (modes.shape[0], 1))
     Y = np.ravel(dmdobs, "F")[:, None]
     amps_sparse = np.squeeze(sr3_optimize_qp(A, Y, alpha, beta, **sr3_args)[0])
-    amps_sparse_complex = np.zeros((amps_sparse.shape[0] // 2,), dtype=np.complex128)
+    amps_sparse_complex = np.zeros(
+        (amps_sparse.shape[0] // 2,), dtype=np.complex128
+    )
     amps_sparse_complex.real = amps_sparse[0 : amps_sparse.shape[0] // 2]
     amps_sparse_complex.imag = amps_sparse[amps_sparse.shape[0] // 2 :]
     idx = np.where(
@@ -357,10 +366,12 @@ def sparsify_modes(
     alpha: float = 1.0,
     beta: float = 1e-6,
     max_iter: int = 10,
-    bounds_real: (NamedTuple("bounds", [("lower", float), ("upper", float)]) | None)
-    | None = None,
-    bounds_imag: (NamedTuple("bounds", [("lower", float), ("upper", float)]) | None)
-    | None = None,
+    bounds_real: (
+        NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
+    ) | None = None,
+    bounds_imag: (
+        NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
+    ) | None = None,
     osqp_settings: Dict[str, Any] | None = None,
     prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -531,7 +542,9 @@ def stabilize_modes(
         eigs_module < outer_radius,
     )
 
-    dmd.amplitudes[fixable_eigs_indexes] *= np.abs(dmd.eigs[fixable_eigs_indexes])
+    dmd.amplitudes[fixable_eigs_indexes] *= np.abs(
+        dmd.eigs[fixable_eigs_indexes]
+    )
     dmd.eigs[fixable_eigs_indexes] /= np.abs(dmd.eigs[fixable_eigs_indexes])
 
     if return_indexes:
@@ -698,7 +711,9 @@ and `max_distance_from_unity_outside` can be not `None`"""
         if max_distance_from_unity_outside == float(
             "inf"
         ) and max_distance_from_unity_inside == float("inf"):
-            raise ValueError("""The combination of parameters does not make sense""")
+            raise ValueError(
+                """The combination of parameters does not make sense"""
+            )
 
         return partial(
             ModesSelectors._stable_modes,
@@ -935,6 +950,9 @@ modes (either a string or a function)"""
             stabilize_modes(dmd, inner_radius, outer_radius)
         return self
 
+    def _update_dmd_instance(self, new_dmd: DMD, idx: int) -> None:
+        self._dmds[idx] = new_dmd
+
     def sparsify_modes(
         self,
         alpha: float = 1.0,
@@ -971,9 +989,11 @@ modes (either a string or a function)"""
         :rtype: object
         """
         for i, dmd in enumerate(self._dmds):
-            omegas = np.log(dmd.eigs) / dmd.dmd_time["dt"]
+            omegas = np.log(dmd.eigs) / dmd.original_time["dt"]
             data_in = (
-                np.concatenate([dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1)
+                np.concatenate(
+                    [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
+                )
                 if dmd.snapshots_y is not None
                 else dmd.snapshots
             )
@@ -998,4 +1018,40 @@ modes (either a string or a function)"""
             dmd_copy._eigs = dmd.eigs[ok_idx]
             dmd_copy._allocate_modes_bitmask_proxy()
             self._dmds[i] = dmd_copy
+        return self
+
+    def select_modes_sparse(
+        self, alpha: float = 1.0, beta: float = 1e-6, **sr3_args
+    ) -> object:
+        """Select subset of DMD modes (sparsification of amplitudes)
+
+        :param alpha: Regularization parameter to stabelize inversion of QP.
+        :type alpha: float
+        :param beta: Parameter for soft-l1 prox operator. Controls how agressive the values are driven to zero.
+        :type beta: float
+        :return: Instance to ModesTuner object
+        :rtype: object
+        """
+        for i, dmd in enumerate(self._dmds):
+            if isinstance(dmd, DMD):
+                time = dmd.original_timesteps
+                omegas = np.log(dmd.eigs) / dmd.dmd_time["dt"]
+                data_in = (
+                    np.concatenate(
+                        [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
+                    )
+                    if dmd.snapshots_y is not None
+                    else dmd.snapshots
+                )
+                new_modes, _, new_amps, idx = select_modes_sparse(
+                    data_in, dmd.modes, omegas, time, alpha, beta, **sr3_args
+                )
+                # force new values
+                dmd_copy = deepcopy(dmd)
+                dmd_copy.operator._modes = new_modes
+                dmd_copy.operator._eigenvalues = dmd.eigs[idx]
+                dmd_copy._b = new_amps
+                dmd_copy._eigs = dmd.eigs[idx]
+                dmd_copy._allocate_modes_bitmask_proxy()
+                self._dmds[i] = dmd_copy
         return self

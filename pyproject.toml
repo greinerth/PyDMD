@@ -51,14 +51,12 @@ tutorial = [
     "ezyrb",
     "opencv-python",
     "ffmpeg-python",
+    "scikit-image",
+    "opencv-python"
 ]
 docs = [
     "sphinx>=1.4",
     "sphinx_rtd_theme"
-]
-tutorial = [
-    "scikit-image",
-    "opencv-python"
 ]
 
 [project.urls]
