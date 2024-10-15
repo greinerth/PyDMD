@@ -127,9 +127,9 @@ def _prox_l1_complex(
     """
     out = np.zeros_like(X_real_imag)
     msk = X_abs >= alpha
-    out[msk] = np.divide(
-        X_real_imag[msk], X_abs[msk], where=X_abs[msk] != 0
-    ) * (X_abs[msk] - alpha)
+    out[msk] = np.divide(X_real_imag[msk], X_abs[msk], where=X_abs[msk] != 0) * (
+        X_abs[msk] - alpha
+    )
     return out
 
 
@@ -297,6 +297,59 @@ def sr3_optimize_qp(
     return u_dense, b_dense
 
 
+def select_modes_sparse(
+    dmdobs: np.ndarray,
+    modes: np.ndarray,
+    omegas: np.ndarray,
+    time: np.ndarray,
+    alpha: float = 1.0,
+    beta: float = 1e-4,
+    **sr3_args,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    r"""Select important modes using sparse amplitude optimization (SR3)
+
+    :param dmdobs: DMD observables
+    :type dmdobs: np.ndarray
+    :param modes: DMD modes
+    :type modes: np.ndarray
+    :param omegas: Continuous eigenvalues of DMD
+    :type omegas: np.ndarray
+    :param time: Timestamps of sampled data points
+    :type time: np.ndarray
+    :param alpha: Regularization parameter to stabelize inversion of QP.
+    :type alpha: float
+    :param beta: Parameter for soft-l1 prox operator. Controls how agressive the values are driven to zero.
+    :type beta: float
+    :raises ValueError: If `dmdobs` is not a 2D array or if number of number of rows of data
+        does not match the number of rows of the DMD modes
+    :raises ValueError: If continuous eigenvalues `omegas` are not a 1D array
+    :raises ValueError: If parameter `time` is not a 1D array
+    :return: Selected modes, selected cont. eigenvalues, selected amplitudes, indices of selection
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    """
+    if (dmdobs.ndim != 2) or (dmdobs.shape[0] != modes.shape[0]):
+        msg = "Invalid data shape. Must be 2D and have as many rows as dmd modes!"
+        raise ValueError(msg)
+    if omegas.ndim != 1:
+        msg = "Invalid shape of continuous eigenvalues. Must be 1D array!"
+        raise ValueError(msg)
+    if time.ndim != 1:
+        msg = "Invalid shape of time. Must be 1D array!"
+        raise ValueError(msg)
+
+    exp = _get_a_mat(omegas, time)
+    A = np.tile(modes, (time.shape[-1], 1)) * np.tile(exp, (modes.shape[0], 1))
+    Y = np.ravel(dmdobs, "F")[:, None]
+    amps_sparse = np.squeeze(sr3_optimize_qp(A, Y, alpha, beta, **sr3_args)[0])
+    amps_sparse_complex = np.zeros((amps_sparse.shape[0] // 2,), dtype=np.complex128)
+    amps_sparse_complex.real = amps_sparse[0 : amps_sparse.shape[0] // 2]
+    amps_sparse_complex.imag = amps_sparse[amps_sparse.shape[0] // 2 :]
+    idx = np.where(
+        (amps_sparse_complex.real != 0.0) & (amps_sparse_complex.imag != 0.0)
+    )[0]
+    return modes[:, idx], omegas[idx], amps_sparse_complex[idx], idx
+
+
 def sparsify_modes(
     omega: np.ndarray,
     time: np.ndarray,
@@ -304,12 +357,10 @@ def sparsify_modes(
     alpha: float = 1.0,
     beta: float = 1e-6,
     max_iter: int = 10,
-    bounds_real: (
-        NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
-    ) | None = None,
-    bounds_imag: (
-        NamedTuple("bounds", [("lower", float), ("upper", float)]) | None
-    ) | None = None,
+    bounds_real: (NamedTuple("bounds", [("lower", float), ("upper", float)]) | None)
+    | None = None,
+    bounds_imag: (NamedTuple("bounds", [("lower", float), ("upper", float)]) | None)
+    | None = None,
     osqp_settings: Dict[str, Any] | None = None,
     prox_operator: str = "prox_l1",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -480,9 +531,7 @@ def stabilize_modes(
         eigs_module < outer_radius,
     )
 
-    dmd.amplitudes[fixable_eigs_indexes] *= np.abs(
-        dmd.eigs[fixable_eigs_indexes]
-    )
+    dmd.amplitudes[fixable_eigs_indexes] *= np.abs(dmd.eigs[fixable_eigs_indexes])
     dmd.eigs[fixable_eigs_indexes] /= np.abs(dmd.eigs[fixable_eigs_indexes])
 
     if return_indexes:
@@ -649,9 +698,7 @@ and `max_distance_from_unity_outside` can be not `None`"""
         if max_distance_from_unity_outside == float(
             "inf"
         ) and max_distance_from_unity_inside == float("inf"):
-            raise ValueError(
-                """The combination of parameters does not make sense"""
-            )
+            raise ValueError("""The combination of parameters does not make sense""")
 
         return partial(
             ModesSelectors._stable_modes,
@@ -926,9 +973,7 @@ modes (either a string or a function)"""
         for i, dmd in enumerate(self._dmds):
             omegas = np.log(dmd.eigs) / dmd.dmd_time["dt"]
             data_in = (
-                np.concatenate(
-                    [dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1
-                )
+                np.concatenate([dmd.snapshots, dmd.snapshots_y[:, -1, None]], axis=-1)
                 if dmd.snapshots_y is not None
                 else dmd.snapshots
             )

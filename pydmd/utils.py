@@ -6,7 +6,7 @@ from typing import NamedTuple
 from collections import namedtuple
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
-import jax.numpy as jnp
+# import jax.numpy as jnp
 
 #  Named tuples used in functions.
 #  compute_svd uses "SVD",
@@ -52,9 +52,7 @@ def _svht(sigma_svd: np.ndarray, rows: int, cols: int) -> int:
     return rank
 
 
-def _compute_rank(
-    sigma_svd: np.ndarray, rows: int, cols: int, svd_rank: Number
-) -> int:
+def _compute_rank(sigma_svd: np.ndarray, rows: int, cols: int, svd_rank: Number) -> int:
     """
     Rank computation for the truncated Singular Value Decomposition.
 
@@ -117,9 +115,7 @@ def compute_rank(X: np.ndarray, svd_rank: Number = 0) -> int:
     return _compute_rank(s, X.shape[0], X.shape[1], svd_rank)
 
 
-def compute_tlsq(
-    X: np.ndarray, Y: np.ndarray, tlsq_rank: int
-) -> NamedTuple(
+def compute_tlsq(X: np.ndarray, Y: np.ndarray, tlsq_rank: int) -> NamedTuple(
     "TLSQ", [("X_denoised", np.ndarray), ("Y_denoised", np.ndarray)]
 ):
     """
@@ -153,9 +149,7 @@ def compute_tlsq(
     return TLSQ(X.dot(VV), Y.dot(VV))
 
 
-def compute_svd(
-    X: np.ndarray, svd_rank: Number = 0
-) -> NamedTuple(
+def compute_svd(X: np.ndarray, svd_rank: Number = 0) -> NamedTuple(
     "SVD", [("U", np.ndarray), ("s", np.ndarray), ("V", np.ndarray)]
 ):
     """
