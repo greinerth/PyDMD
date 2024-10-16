@@ -9,9 +9,7 @@ from copy import deepcopy
 from functools import partial
 from types import MappingProxyType
 from typing import Any, Dict, NamedTuple
-from .bopdmd import BOPDMD
 from .dmd import DMD
-from .varprodmd import VarProDMD
 
 
 import numpy as np
@@ -20,10 +18,7 @@ from osqp import OSQP
 
 BOUND = namedtuple("Bound", ["lower", "upper"])
 OSQP_SETTINGS = MappingProxyType(
-    {
-        "linsys_solver": "qdldl",
-        "verbose": False,
-    }
+    {"linsys_solver": "qdldl", "verbose": False, "warm_start": True}
 )
 
 
